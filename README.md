@@ -18,7 +18,7 @@ This is the server component of the Stalinium botnet project. It provides a cent
 
 ## Setup
 
-1. **Install Rust**: Follow the instructions at [Rust Installation](https://www.rust-lang.org/tools/install).
+1. **Install Rust**: Follow the instructions at https://www.rust-lang.org/tools/install
 
 2. **Clone the Repository**:
 
