@@ -1,0 +1,27 @@
+[package]
+name = "botnet_client"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+# Asynchronous runtime for networking and file I/O
+tokio = { version = "1", features = ["full"] }
+
+# JSON serialization and deserialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# AES encryption library
+aes-gcm = "0.10" # Latest version for AES-GCM
+
+# Cryptographic random number generation
+getrandom = "0.2" # For secure nonce generation
+
+# HTTP client for SQL injection
+reqwest = { version = "0.11", features = ["json"] }
+
+# Logging framework
+log = "0.4"
+
+[build-dependencies]
+# Build dependencies if any
