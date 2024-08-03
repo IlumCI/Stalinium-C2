@@ -1,0 +1,16 @@
+[settings]
+# Address and port of the command and control (C2) server
+server_address = "127.0.0.1:8080"
+
+# Encryption key for secure communication
+# Note: Ensure this key is kept secret and secure
+encryption_key = "a_very_secret_key_1234567890abcdef"
+
+# Directory for logging and other operations
+log_directory = "/var/log/botnet_client"
+
+# Email settings for phishing attacks
+email_smtp_server = "smtp.example.com"
+email_port = 587
+email_username = "example@example.com"
+email_password = "your_password"
