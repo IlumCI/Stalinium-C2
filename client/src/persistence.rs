@@ -13,8 +13,7 @@ pub fn add_persistence() {
         .status();
 
     match status {
-        Ok(s)
-if s.success() => println!("Persistence added successfully."),
-Ok() | Err() => error!("Failed to add persistence."),
-}
+        Ok(s) if s.success() => println!("Persistence added successfully."),
+        Ok(_) | Err(_) => error!("Failed to add persistence."),
+    }
 }
