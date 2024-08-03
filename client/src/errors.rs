@@ -34,6 +34,4 @@ impl From<serde_json::Error> for C2Error {
 
 pub fn handle_error<E: Error>(error: E) {
     eprintln!("Error occurred: {}", error);
-    // Implement advanced error handling logic here
-    // For example, retry logic, logging, alerting, etc.
 }
