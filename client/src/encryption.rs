@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_encryption_decryption() {
-        let key = b"an_example_very_secure_key!!12345";
+        let key = b"an_example_very_secure_key!12345";
         let nonce = generate_nonce();
         let data = b"Some secret data";
 
