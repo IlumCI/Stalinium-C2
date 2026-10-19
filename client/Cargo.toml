@@ -1,7 +1,7 @@
 [package]
 name = "stalinium_client"
-version = "0.1.0"
-edition = "2018"
+version = "0.2.0"
+edition = "2021"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -12,3 +12,9 @@ getrandom = "0.2"
 reqwest = { version = "0.11", features = ["json"] }
 toml = "0.8"
 log = "0.4"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ml-kem = "0.2"
+hkdf = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }

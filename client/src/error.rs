@@ -5,6 +5,8 @@ use std::fmt;
 pub enum C2Error {
     NetworkError(String),
     CommandError(String),
+    CryptoError(String),
+    P2pError(String),
     UnknownError(String),
 }
 
@@ -13,6 +15,8 @@ impl fmt::Display for C2Error {
         match self {
             C2Error::NetworkError(msg) => write!(f, "Network error: {}", msg),
             C2Error::CommandError(msg) => write!(f, "Command error: {}", msg),
+            C2Error::CryptoError(msg) => write!(f, "Crypto error: {}", msg),
+            C2Error::P2pError(msg) => write!(f, "P2P error: {}", msg),
             C2Error::UnknownError(msg) => write!(f, "Unknown error: {}", msg),
         }
     }
@@ -35,6 +39,12 @@ impl From<serde_json::Error> for C2Error {
 impl From<reqwest::Error> for C2Error {
     fn from(error: reqwest::Error) -> Self {
         C2Error::NetworkError(error.to_string())
+    }
+}
+
+impl From<Box<dyn Error + Send + Sync>> for C2Error {
+    fn from(error: Box<dyn Error + Send + Sync>) -> Self {
+        C2Error::UnknownError(error.to_string())
     }
 }
 

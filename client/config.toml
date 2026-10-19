@@ -1,15 +1,14 @@
 [settings]
-# Address and port of the C2 server
 server_address = "127.0.0.1:8080"
-
-# Encryption key for AES-256-GCM (must be exactly 32 bytes)
 encryption_key = "a_very_secret_key_1234567890abcd"
 
-# Directory for logging
-log_directory = "/var/log/stalinium_client"
+[p2p]
+enabled = true
+gossip_address = "0.0.0.0:0"
+max_peers = 50
+bootstrap_peers = ["127.0.0.1:9090"]
 
-# Email settings for phishing operations
-email_smtp_server = "smtp.example.com"
-email_port = 587
-email_username = "example@example.com"
-email_password = "your_password"
+[agentic]
+enabled = false
+endpoint = "https://api.openai.com"
+api_key = "sk-stalinium-prod-key-0001"

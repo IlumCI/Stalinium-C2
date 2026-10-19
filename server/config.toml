@@ -6,3 +6,14 @@ encryption_key = "a_very_secret_key_1234567890abcd"
 [backup_servers]
 primary = "192.168.1.2:8080"
 secondary = "192.168.1.3:8080"
+
+[p2p]
+enabled = true
+gossip_address = "0.0.0.0:9090"
+max_peers = 50
+bootstrap_peers = []
+
+[agentic]
+enabled = true
+listen_address = "0.0.0.0:8443"
+api_keys = ["sk-stalinium-prod-key-0001"]

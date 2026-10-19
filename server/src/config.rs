@@ -4,6 +4,10 @@ use serde::Deserialize;
 pub struct Config {
     pub settings: Settings,
     pub backup_servers: BackupServers,
+    #[serde(default)]
+    pub p2p: P2pConfig,
+    #[serde(default)]
+    pub agentic: AgenticConfig,
 }
 
 #[derive(Deserialize)]
@@ -17,6 +21,42 @@ pub struct Settings {
 pub struct BackupServers {
     pub primary: String,
     pub secondary: String,
+}
+
+#[derive(Deserialize)]
+pub struct P2pConfig {
+    pub enabled: bool,
+    pub gossip_address: String,
+    pub max_peers: usize,
+    pub bootstrap_peers: Vec<String>,
+}
+
+impl Default for P2pConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            gossip_address: "0.0.0.0:9090".to_string(),
+            max_peers: 50,
+            bootstrap_peers: vec![],
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct AgenticConfig {
+    pub enabled: bool,
+    pub listen_address: String,
+    pub api_keys: Vec<String>,
+}
+
+impl Default for AgenticConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen_address: "0.0.0.0:443".to_string(),
+            api_keys: vec![],
+        }
+    }
 }
 
 impl Config {

