@@ -27,6 +27,9 @@ pub enum GossipMessage {
     ActivationForward { job_id: String, request_id: String, stage: u32, data: Vec<u8> },
     GradientSubmit { job_id: String, round: u32, node_id: String, payload: Vec<u8> },
     AggregatedUpdate { job_id: String, round: u32, payload: Vec<u8> },
+    /// Creature migration: genomes from a node's local evolutionary soup,
+    /// exchanged via gossip for distributed open-ended evolution (arXiv:2401.17224).
+    CreatureMigration { origin: SocketAddr, ttl: u8, payload: Vec<u8> },
 }
 
 pub struct GossipEngine {
@@ -105,6 +108,15 @@ impl GossipEngine {
             id,
             origin: self.peer_mgr.self_addr,
             ttl: 5,
+            payload,
+        };
+        self.broadcast(&msg, FANOUT).await;
+    }
+
+    pub async fn broadcast_creatures(&self, payload: Vec<u8>) {
+        let msg = GossipMessage::CreatureMigration {
+            origin: self.peer_mgr.self_addr,
+            ttl: 3,
             payload,
         };
         self.broadcast(&msg, FANOUT).await;
@@ -202,6 +214,20 @@ impl GossipEngine {
                         job_id, round, payload,
                     };
                     self.broadcast(&relay, FANOUT).await;
+                }
+            }
+            GossipMessage::CreatureMigration { origin, ttl, payload } => {
+                let id = format!("evo:{}:{}", origin, blake3::hash(&payload));
+                if self.mark_seen(&id).await {
+                    self.command_rx.write().await.push((id.clone(), payload.clone()));
+                    if ttl > 0 {
+                        let relay = GossipMessage::CreatureMigration {
+                            origin,
+                            ttl: ttl - 1,
+                            payload,
+                        };
+                        self.broadcast(&relay, FANOUT).await;
+                    }
                 }
             }
         }

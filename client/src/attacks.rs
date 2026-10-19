@@ -19,6 +19,7 @@ pub async fn execute_attack(command: &Command) -> Result<String, C2Error> {
         "recon_full" => recon_full(&command.args).await,
         "compute_profile" => compute_profile().await,
         "compute_status" => compute_status(&command.args).await,
+        "evolution_status" => evolution_status().await,
         _ => Err(C2Error::CommandError("Unknown command".to_string())),
     }
 }
@@ -170,6 +171,10 @@ async fn compute_status(_args: &[String]) -> Result<String, C2Error> {
     let cap = capability::profile_local();
     let score = cap.compute_score(0);
     serde_json::to_string(&score).map_err(|e| C2Error::CommandError(e.to_string()))
+}
+
+async fn evolution_status() -> Result<String, C2Error> {
+    Ok("{\"status\":\"soup_running\",\"note\":\"evolution status requires in-process handle\"}".to_string())
 }
 
 async fn recon_full(args: &[String]) -> Result<String, C2Error> {
