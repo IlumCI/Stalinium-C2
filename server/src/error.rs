@@ -37,7 +37,3 @@ impl From<Box<dyn Error>> for C2Error {
         C2Error::UnknownError(error.to_string())
     }
 }
-
-pub fn handle_error<E: Error>(error: E) {
-    eprintln!("Error occurred: {}", error);
-}

