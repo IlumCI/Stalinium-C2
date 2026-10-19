@@ -1,5 +1,6 @@
 mod config;
 mod communication;
+mod commands;
 mod error;
 mod persistence;
 mod attacks;

@@ -1,5 +1,5 @@
 [package]
-name = "botnet_server"
+name = "stalinium_server"
 version = "0.1.0"
 edition = "2018"
 
@@ -7,8 +7,5 @@ edition = "2018"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
+toml = "0.8"
 log = "0.4"
-tauri = { version = "1.0", features = ["default", "shell"] }
-
-[features]
-default = ["shell"]

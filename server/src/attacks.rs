@@ -1,6 +1,6 @@
 use std::error::Error;
 use tokio::net::TcpStream;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::io::AsyncWriteExt;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -26,14 +26,14 @@ pub async fn ransomware_attack(target_ip: &str, target_port: u16, encryption_key
     Ok(())
 }
 
-pub async fn phishing_attack(target_email: &str, email_content: &str) -> Result<(), Box<dyn Error>> {
-    // Simulate phishing attack logic here
+pub async fn phishing_attack(_target_email: &str, _email_content: &str) -> Result<(), Box<dyn Error>> {
+    // Stub: phishing attack logic
     sleep(Duration::from_secs(2)).await;
     Ok(())
 }
 
-pub async fn sql_injection_attack(target_url: &str, malicious_query: &str) -> Result<(), Box<dyn Error>> {
-    // Simulate SQL injection attack logic here
+pub async fn sql_injection_attack(_target_url: &str, _malicious_query: &str) -> Result<(), Box<dyn Error>> {
+    // Stub: SQL injection attack logic
     sleep(Duration::from_secs(2)).await;
     Ok(())
 }

