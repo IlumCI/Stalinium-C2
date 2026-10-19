@@ -2228,6 +2228,7 @@ name = "stalinium_client"
 version = "0.2.0"
 dependencies = [
  "aes-gcm",
+ "bincode",
  "blake3",
  "crusade-core",
  "crusade-enrich",

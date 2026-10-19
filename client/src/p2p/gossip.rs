@@ -113,13 +113,17 @@ impl GossipEngine {
         self.broadcast(&msg, FANOUT).await;
     }
 
-    pub async fn broadcast_creatures(&self, payload: Vec<u8>) {
+    pub async fn broadcast_creatures(&self, payload: Vec<u8>, fanout: usize) {
         let msg = GossipMessage::CreatureMigration {
             origin: self.peer_mgr.self_addr,
             ttl: 3,
             payload,
         };
-        self.broadcast(&msg, FANOUT).await;
+        self.broadcast(&msg, fanout.max(1)).await;
+    }
+
+    pub async fn peer_count(&self) -> u32 {
+        self.peer_mgr.peer_count().await as u32
     }
 
     async fn handle_message(&self, msg: GossipMessage, from: SocketAddr) {

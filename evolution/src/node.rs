@@ -5,16 +5,22 @@
 //! census snapshots out. Architecture follows arXiv:2401.17224 (gossip-mediated
 //! asynchronous migration with self-adaptive rate) and arXiv:2409.01469
 //! (heterogeneous swarm substrates for open-ended evolution).
+//!
+//! Phase 2: creatures become hostile agents driving C2 behavior. Phenotype maps
+//! to timing jitter, gossip fanout, aggression and stealth. Proof-of-Evolution
+//! chain provides verifiable useful work for web3 token minting (arXiv:2606.24942,
+//! arXiv:2405.04038). Soup state persists across restarts via bincode.
 
 use crate::feed::Feed;
 use crate::isa;
-use crate::meter::Meter;
+use crate::meter::{Census, Meter};
 use crate::world::{Ocean, Params, World};
 use std::sync::mpsc;
+use std::time::SystemTime;
 use tokio::sync::{oneshot, watch};
 
 /// Network telemetry that becomes the soup's weather and ocean.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Telemetry {
     pub peer_count: u32,
     pub mean_latency_ms: u32,
@@ -24,8 +30,85 @@ pub struct Telemetry {
     pub uptime_secs: u64,
 }
 
+/// Creature-derived behavioral signal that modulates C2 communication patterns.
+/// The soup's phenotype drives the swarm: timing, routing, aggression, evasion.
+/// arXiv:2603.15655 shows agents evolve steganographic protocols spontaneously;
+/// arXiv:2609.17320 shows 30-40% of messages become opaque without incentive.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct BehaviorSignal {
+    pub timing_jitter_ms: u32,
+    pub fanout_modifier: f64,
+    pub aggression: f64,
+    pub stealth: f64,
+    pub entropy_bits: f64,
+    pub task_vector: [u32; 10],
+}
+
+/// Verifiable proof that a node performed genuine open-ended evolution.
+/// Each proof chains to its predecessor via prev_proof_hash, forming
+/// an append-only log. Token value scales with evolutionary novelty:
+/// gene_novelty * (1 + observer_bits) * sqrt(complexity+1) * ln(ecology+1).
+/// This replaces wasteful hash mining with useful evolutionary computation
+/// (arXiv:2001.09244 proof-of-useful-work, arXiv:2606.24942 token economy).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct EvolutionProof {
+    pub epoch: u64,
+    pub state_hash: [u8; 32],
+    pub prev_proof_hash: [u8; 32],
+    pub population: usize,
+    pub gene_novelty: u32,
+    pub observer_bits: f64,
+    pub complexity: u32,
+    pub ecology: f64,
+    pub computing: u32,
+    pub proof_hash: [u8; 32],
+    pub node_id: Vec<u8>,
+    pub timestamp_secs: u64,
+}
+
+impl EvolutionProof {
+    pub fn compute_hash(&mut self) {
+        let mut h = blake3::Hasher::new();
+        h.update(&self.epoch.to_le_bytes());
+        h.update(&self.state_hash);
+        h.update(&self.prev_proof_hash);
+        h.update(&(self.population as u64).to_le_bytes());
+        h.update(&self.gene_novelty.to_le_bytes());
+        h.update(&self.observer_bits.to_le_bytes());
+        h.update(&self.complexity.to_le_bytes());
+        h.update(&self.ecology.to_le_bytes());
+        h.update(&self.computing.to_le_bytes());
+        h.update(&self.node_id);
+        h.update(&self.timestamp_secs.to_le_bytes());
+        self.proof_hash = *h.finalize().as_bytes();
+    }
+
+    pub fn verify(&self) -> bool {
+        let mut h = blake3::Hasher::new();
+        h.update(&self.epoch.to_le_bytes());
+        h.update(&self.state_hash);
+        h.update(&self.prev_proof_hash);
+        h.update(&(self.population as u64).to_le_bytes());
+        h.update(&self.gene_novelty.to_le_bytes());
+        h.update(&self.observer_bits.to_le_bytes());
+        h.update(&self.complexity.to_le_bytes());
+        h.update(&self.ecology.to_le_bytes());
+        h.update(&self.computing.to_le_bytes());
+        h.update(&self.node_id);
+        h.update(&self.timestamp_secs.to_le_bytes());
+        *h.finalize().as_bytes() == self.proof_hash
+    }
+
+    pub fn token_value(&self) -> f64 {
+        self.gene_novelty as f64
+            * (1.0 + self.observer_bits)
+            * ((self.complexity as f64 + 1.0).sqrt())
+            * ((self.ecology + 1.0).ln())
+    }
+}
+
 /// A snapshot of the soup's state, cheap to send across threads.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct SoupSnapshot {
     pub epoch: u64,
     pub population: usize,
@@ -35,6 +118,17 @@ pub struct SoupSnapshot {
     pub excess: i64,
     pub dominant: String,
     pub computing: u32,
+    pub modes_change: u32,
+    pub modes_novelty: u32,
+    pub modes_complexity: u32,
+    pub modes_ecology: f64,
+    pub modes_observer_bits: f64,
+    pub tasks: [u32; 10],
+    pub ocean_acc: f64,
+    pub ocean_bits: f64,
+    pub state_hash: [u8; 32],
+    pub behavior: BehaviorSignal,
+    pub latest_proof: Option<EvolutionProof>,
 }
 
 /// Serialised creature genome for migration between nodes.
@@ -45,11 +139,25 @@ pub struct Migrant {
     pub epoch: u64,
 }
 
+/// Serialised soup state for persistence across client restarts.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SoupState {
+    pub world_bytes: Vec<u8>,
+    pub meter_bytes: Vec<u8>,
+    pub feed_bytes: Vec<u8>,
+    pub epoch: u64,
+    pub telemetry_history: Vec<Telemetry>,
+    pub proof_chain_tail: [u8; 32],
+}
+
 enum Command {
     Telemetry(Telemetry),
     Immigrate(Vec<Migrant>),
     Emigrate { count: usize, reply: oneshot::Sender<Vec<Migrant>> },
     Snapshot(oneshot::Sender<SoupSnapshot>),
+    Save(oneshot::Sender<Result<SoupState, String>>),
+    Load { state: SoupState, reply: oneshot::Sender<Result<(), String>> },
+    QueryBehavior(oneshot::Sender<BehaviorSignal>),
     Shutdown,
 }
 
@@ -136,6 +244,42 @@ impl SoupHandle {
         reply_rx.await.unwrap_or_default()
     }
 
+    /// Serialize the soup's full state for persistence across restarts.
+    pub async fn save(&self) -> Result<SoupState, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if self.tx.send(Command::Save(reply_tx)).is_err() {
+            return Err("soup thread disconnected".into());
+        }
+        reply_rx.await.map_err(|_| "soup thread dropped reply".to_string())?
+    }
+
+    /// Restore soup state from a previously saved snapshot.
+    pub async fn load(&self, state: SoupState) -> Result<(), String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if self.tx.send(Command::Load { state, reply: reply_tx }).is_err() {
+            return Err("soup thread disconnected".into());
+        }
+        reply_rx.await.map_err(|_| "soup thread dropped reply".to_string())?
+    }
+
+    /// Request current behavior signal (waits for soup thread).
+    pub async fn behavior(&self) -> BehaviorSignal {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if self.tx.send(Command::QueryBehavior(reply_tx)).is_err() {
+            return BehaviorSignal::default();
+        }
+        reply_rx.await.unwrap_or_default()
+    }
+
+    /// Extract behavior from the latest snapshot without blocking.
+    pub fn latest_behavior(&self) -> BehaviorSignal {
+        self.snapshot_rx.borrow().behavior.clone()
+    }
+
+    pub fn snapshot_watch(&self) -> watch::Receiver<SoupSnapshot> {
+        self.snapshot_rx.clone()
+    }
+
     /// Shut down the soup thread.
     pub fn shutdown(&mut self) {
         let _ = self.tx.send(Command::Shutdown);
@@ -151,10 +295,81 @@ impl Drop for SoupHandle {
     }
 }
 
+fn sigmoid(x: f64) -> f64 {
+    1.0 / (1.0 + (-x).exp())
+}
+
+/// Extract actionable behavior signal from census data.
+/// Creature phenotype drives C2 communication: computing creatures modulate
+/// timing, gene diversity scales fanout, evolutionary excess drives aggression,
+/// and observer surprise fuels stealth.
+pub fn extract_behavior(c: &Census, state_hash: &[u8; 32]) -> BehaviorSignal {
+    let pop = c.pop.max(1);
+
+    let base_jitter = 50u32
+        .saturating_add((c.computing as u32).saturating_mul(200) / pop as u32)
+        .saturating_add(c.genes.new.saturating_mul(10));
+    let hash_xor = u32::from_le_bytes([
+        state_hash[28], state_hash[29], state_hash[30], state_hash[31],
+    ]);
+    let timing_jitter_ms = (base_jitter ^ hash_xor).clamp(10, 2000);
+
+    let fanout_modifier = (c.modes.ecology / 3.0).clamp(0.5, 3.0);
+
+    let aggression = sigmoid(c.norm.cum as f64 / 100.0)
+        * (c.computing as f64 / pop as f64);
+
+    let stealth = ((c.modes.observer_bits / 8.0)
+        * (1.0 - c.ocean_acc).max(0.0))
+        .clamp(0.0, 1.0);
+
+    let entropy_bits = c.modes.observer_bits
+        + if c.diversity > 1 { (c.diversity as f64).log2() } else { 0.0 };
+
+    BehaviorSignal {
+        timing_jitter_ms,
+        fanout_modifier,
+        aggression,
+        stealth,
+        entropy_bits,
+        task_vector: c.tasks,
+    }
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Build a proof-of-evolution for the current epoch.
+fn generate_proof(
+    epoch: u64,
+    state_hash: [u8; 32],
+    prev_proof_hash: [u8; 32],
+    c: &Census,
+    node_id: &[u8],
+) -> EvolutionProof {
+    let mut proof = EvolutionProof {
+        epoch,
+        state_hash,
+        prev_proof_hash,
+        population: c.pop,
+        gene_novelty: c.genes.new,
+        observer_bits: c.modes.observer_bits,
+        complexity: c.modes.complexity,
+        ecology: c.modes.ecology,
+        computing: c.computing,
+        proof_hash: [0u8; 32],
+        node_id: node_id.to_vec(),
+        timestamp_secs: now_secs(),
+    };
+    proof.compute_hash();
+    proof
+}
+
 /// Convert network telemetry into 32 bytes of weather for the soup.
-/// Peer count and latency shape the sun position and width; gossip rate
-/// and bandwidth become the cosmic ray interval; raw bytes are hashed
-/// to produce the data field.
 fn telemetry_to_weather_bytes(t: &Telemetry) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&t.peer_count.to_le_bytes());
@@ -166,15 +381,43 @@ fn telemetry_to_weather_bytes(t: &Telemetry) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-/// Build an ocean from recent telemetry history. The ocean is a byte stream
-/// that creatures try to predict; using network telemetry means creatures
-/// that evolve to model network patterns get rewarded.
+/// Build an ocean from recent telemetry history.
 fn build_telemetry_ocean(history: &[Telemetry]) -> Vec<u8> {
     let mut ocean = Vec::with_capacity(history.len() * 32);
     for t in history {
         ocean.extend_from_slice(&telemetry_to_weather_bytes(t));
     }
     ocean
+}
+
+fn build_snapshot(
+    epoch: u64,
+    c: &Census,
+    state_hash: [u8; 32],
+    behavior: &BehaviorSignal,
+    proof: &EvolutionProof,
+) -> SoupSnapshot {
+    SoupSnapshot {
+        epoch,
+        population: c.pop,
+        diversity: c.diversity,
+        alive_genes: c.genes.alive,
+        gene_novelty: c.genes.new,
+        excess: c.norm.cum,
+        dominant: c.dominant.clone(),
+        computing: c.computing,
+        modes_change: c.modes.change,
+        modes_novelty: c.modes.novelty,
+        modes_complexity: c.modes.complexity,
+        modes_ecology: c.modes.ecology,
+        modes_observer_bits: c.modes.observer_bits,
+        tasks: c.tasks,
+        ocean_acc: c.ocean_acc,
+        ocean_bits: c.ocean_bits,
+        state_hash,
+        behavior: behavior.clone(),
+        latest_proof: Some(proof.clone()),
+    }
 }
 
 const EPOCH_INSTR: u64 = 500_000;
@@ -197,9 +440,10 @@ fn soup_loop(
     let mut epoch: u64 = 0;
     let mut telemetry_history: Vec<Telemetry> = Vec::new();
     let mut latest_telemetry = Telemetry::default();
+    let mut prev_proof_hash = [0u8; 32];
+    let mut latest_behavior = BehaviorSignal::default();
 
     loop {
-        // Drain all pending commands without blocking
         loop {
             match rx.try_recv() {
                 Ok(Command::Telemetry(t)) => {
@@ -227,7 +471,60 @@ fn soup_loop(
                     let _ = reply.send(migrants);
                 }
                 Ok(Command::Snapshot(reply)) => {
-                    let _ = reply.send(make_snapshot(epoch, &w, &m));
+                    let state_hash = w.state_hash();
+                    let (c, _notes) = m.census(&mut w);
+                    let behavior = extract_behavior(&c, &state_hash);
+                    let proof = generate_proof(epoch, state_hash, prev_proof_hash, &c, &node_id);
+                    let _ = reply.send(build_snapshot(epoch, &c, state_hash, &behavior, &proof));
+                }
+                Ok(Command::Save(reply)) => {
+                    let world_bytes = match bincode::serialize(&w) {
+                        Ok(b) => b,
+                        Err(e) => { let _ = reply.send(Err(format!("world: {e}"))); continue; }
+                    };
+                    let meter_bytes = match bincode::serialize(&m) {
+                        Ok(b) => b,
+                        Err(e) => { let _ = reply.send(Err(format!("meter: {e}"))); continue; }
+                    };
+                    let feed_bytes = match bincode::serialize(&feed) {
+                        Ok(b) => b,
+                        Err(e) => { let _ = reply.send(Err(format!("feed: {e}"))); continue; }
+                    };
+                    let _ = reply.send(Ok(SoupState {
+                        world_bytes,
+                        meter_bytes,
+                        feed_bytes,
+                        epoch,
+                        telemetry_history: telemetry_history.clone(),
+                        proof_chain_tail: prev_proof_hash,
+                    }));
+                }
+                Ok(Command::Load { state, reply }) => {
+                    let result = (|| -> Result<(), String> {
+                        let mut loaded_w: World = bincode::deserialize(&state.world_bytes)
+                            .map_err(|e| format!("world: {e}"))?;
+                        let ocean_data = build_telemetry_ocean(&state.telemetry_history);
+                        if ocean_data.is_empty() {
+                            loaded_w.after_load(Ocean::default());
+                        } else {
+                            loaded_w.after_load(ocean_data);
+                        }
+                        let loaded_m: Meter = bincode::deserialize(&state.meter_bytes)
+                            .map_err(|e| format!("meter: {e}"))?;
+                        let loaded_feed: Feed = bincode::deserialize(&state.feed_bytes)
+                            .map_err(|e| format!("feed: {e}"))?;
+                        w = loaded_w;
+                        m = loaded_m;
+                        feed = loaded_feed;
+                        epoch = state.epoch;
+                        telemetry_history = state.telemetry_history;
+                        prev_proof_hash = state.proof_chain_tail;
+                        Ok(())
+                    })();
+                    let _ = reply.send(result);
+                }
+                Ok(Command::QueryBehavior(reply)) => {
+                    let _ = reply.send(latest_behavior.clone());
                 }
                 Ok(Command::Shutdown) => return,
                 Err(mpsc::TryRecvError::Empty) => break,
@@ -244,7 +541,6 @@ fn soup_loop(
             }
         };
 
-        // Mix telemetry into weather bytes
         let mut weather_bytes = fb;
         if !telemetry_history.is_empty() {
             let tb = telemetry_to_weather_bytes(&latest_telemetry);
@@ -255,49 +551,31 @@ fn soup_loop(
 
         w.set_weather(&weather_bytes);
 
-        // Periodically refresh the ocean from telemetry history
         if epoch % 10 == 0 && !telemetry_history.is_empty() {
             let ocean_bytes = build_telemetry_ocean(&telemetry_history);
             w.replace_ocean(ocean_bytes);
         }
 
         w.run(EPOCH_INSTR);
+        let state_hash = w.state_hash();
         let (c, _notes) = m.census(&mut w);
 
-        let snap = SoupSnapshot {
-            epoch,
-            population: c.pop,
-            diversity: c.diversity,
-            alive_genes: c.genes.alive,
-            gene_novelty: c.genes.new,
-            excess: c.norm.cum,
-            dominant: c.dominant.clone(),
-            computing: c.computing,
-        };
+        let behavior = extract_behavior(&c, &state_hash);
+        latest_behavior = behavior.clone();
+
+        let proof = generate_proof(epoch, state_hash, prev_proof_hash, &c, &node_id);
+        prev_proof_hash = proof.proof_hash;
+
+        let snap = build_snapshot(epoch, &c, state_hash, &behavior, &proof);
         let _ = snap_tx.send(snap);
 
         epoch += 1;
 
         if w.alive == 0 {
-            // Reinject ancestor on extinction
             let g = w.inject(&ancestor, w.n / 2);
             m = Meter::new(g, ancestor.len() as u32, seed.wrapping_add(epoch), WARMUP);
         }
 
-        // Yield to OS briefly so we don't starve the async runtime
         std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-}
-
-fn make_snapshot(epoch: u64, w: &World, _m: &Meter) -> SoupSnapshot {
-    SoupSnapshot {
-        epoch,
-        population: w.alive,
-        diversity: 0,
-        alive_genes: 0,
-        gene_novelty: 0,
-        excess: 0,
-        dominant: String::new(),
-        computing: 0,
     }
 }

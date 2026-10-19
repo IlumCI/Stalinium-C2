@@ -68,6 +68,9 @@ button:active{background:#cc2222}
     </optgroup>
   </select></div>
 </div>
+
+<h2>Evolution Soup</h2>
+<div id="evo-panel" style="font-size:12px;color:#555">no evolution data</div>
 <div class="form-row">
   <div><label>Arguments (comma separated)</label><input id="f-args" placeholder="arg1, arg2, arg3"></div>
 </div>
@@ -111,6 +114,7 @@ async function poll(){
     $('result-count').textContent=results.length?`(${results.length})`:'';
     if(!results.length){$('results').innerHTML='<p class="empty">no results</p>';}
     else{let rh='';for(const r of[...results].reverse()){rh+=`<div class="result"><div class="meta">${r.bot_addr} / ${r.command} / ${r.seconds_ago}s ago</div><div class="output">${r.result}</div></div>`;}$('results').innerHTML=rh;}
+    renderEvo(results);
   }catch(e){}
 }
 async function send(){
@@ -118,6 +122,30 @@ async function send(){
   const command=$('f-cmd').value;
   const args=$('f-args').value?$('f-args').value.split(',').map(s=>s.trim()):[];
   try{await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target,command,args})});$('f-args').value='';}catch(e){}
+}
+function renderEvo(results){
+  const evoResults=results.filter(r=>r.command==='evolution_status');
+  if(!evoResults.length){$('evo-panel').innerHTML='<span style="color:#333">no evolution data</span>';return;}
+  let h='<table>';
+  for(const r of evoResults.slice(-4)){
+    try{
+      const s=JSON.parse(r.result);
+      const b=s.behavior||{};
+      h+=`<tr><td style="color:#444;width:100px">${r.bot_addr}</td>`;
+      h+=`<td><span style="color:#ff3333">e${s.epoch}</span> `;
+      h+=`pop=<span style="color:#00ff41">${s.population}</span> `;
+      h+=`div=${s.diversity} genes=${s.alive_genes} comp=${s.computing}</td>`;
+      h+=`<td>agg=<span style="color:${b.aggression>0.5?'#ff3333':'#00ff41'}">${(b.aggression||0).toFixed(2)}</span> `;
+      h+=`stl=<span style="color:${b.stealth>0.5?'#00ff41':'#555'}">${(b.stealth||0).toFixed(2)}</span> `;
+      h+=`fan=${(b.fanout_modifier||0).toFixed(1)} jit=${b.timing_jitter_ms||0}ms</td></tr>`;
+      h+=`<tr><td></td><td colspan="2" style="color:#333;font-size:10px">`;
+      h+=`MODES: chg=${s.modes_change} nov=${s.modes_novelty} cplx=${s.modes_complexity} `;
+      h+=`eco=${(s.modes_ecology||0).toFixed(1)} obs=${(s.modes_observer_bits||0).toFixed(1)} `;
+      h+=`ocean_acc=${(s.ocean_acc||0).toFixed(3)}</td></tr>`;
+    }catch(e){h+=`<tr><td>${r.bot_addr}</td><td style="color:#555">${r.result}</td></tr>`;}
+  }
+  h+='</table>';
+  $('evo-panel').innerHTML=h;
 }
 function startPolling(){poll();pollStatus();setTimeout(()=>{startPolling()},pollInterval);}
 startPolling();

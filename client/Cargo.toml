@@ -25,3 +25,4 @@ crusade-enrich = { git = "https://github.com/IlumCI/Crusade.git" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 stalinium_evolution = { path = "../evolution" }
 blake3 = "1"
+bincode = "1"

@@ -1,9 +1,9 @@
-use stalinium_evolution::node::{Migrant, SoupHandle, SoupSnapshot, Telemetry};
+use stalinium_evolution::node::{BehaviorSignal, Migrant, SoupHandle, SoupSnapshot, SoupState, Telemetry};
+use crate::behavior::SwarmParams;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
-/// Migration interval: every N gossip cycles, exchange creatures with peers.
 const MIGRATE_EVERY: u64 = 5;
 const MIGRANTS_PER_EXCHANGE: usize = 4;
 
@@ -13,6 +13,7 @@ pub struct EvolutionEngine {
     gossip_cycles: u64,
     start_time: Instant,
     pending_immigrants: Arc<RwLock<Vec<Migrant>>>,
+    latest_params: SwarmParams,
 }
 
 impl EvolutionEngine {
@@ -31,11 +32,10 @@ impl EvolutionEngine {
             gossip_cycles: 0,
             start_time: Instant::now(),
             pending_immigrants: Arc::new(RwLock::new(Vec::new())),
+            latest_params: SwarmParams::from_behavior(&BehaviorSignal::default()),
         }
     }
 
-    /// Feed network telemetry into the soup. Call this periodically from the
-    /// gossip engine's tick loop.
     pub fn tick(&self, peer_count: u32, mean_latency_ms: u32, gossip_msg_rate: u32, bytes_in: u64, bytes_out: u64) {
         self.soup.feed_telemetry(Telemetry {
             peer_count,
@@ -47,24 +47,22 @@ impl EvolutionEngine {
         });
     }
 
-    /// Accept incoming migrants from the gossip protocol.
     pub async fn receive_migrants(&self, migrants: Vec<Migrant>) {
         self.pending_immigrants.write().await.extend(migrants);
     }
 
-    /// Process pending immigrants and check if we should send emigrants.
-    /// Returns migrants to broadcast via gossip, if any.
     pub async fn cycle(&mut self) -> Option<Vec<Migrant>> {
-        // Inject pending immigrants
         let immigrants: Vec<Migrant> = {
             let mut pending = self.pending_immigrants.write().await;
             std::mem::take(&mut *pending)
         };
         self.soup.immigrate(immigrants);
 
+        let snap = self.soup.latest_snapshot();
+        self.latest_params = SwarmParams::from_behavior(&snap.behavior);
+
         self.gossip_cycles += 1;
 
-        // Periodically export migrants
         if self.gossip_cycles % MIGRATE_EVERY == 0 {
             let emigrants = self.soup.emigrate(MIGRANTS_PER_EXCHANGE).await;
             if !emigrants.is_empty() {
@@ -76,6 +74,22 @@ impl EvolutionEngine {
 
     pub fn snapshot(&self) -> SoupSnapshot {
         self.soup.latest_snapshot()
+    }
+
+    pub fn swarm_params(&self) -> &SwarmParams {
+        &self.latest_params
+    }
+
+    pub async fn save_state(&self) -> Result<SoupState, String> {
+        self.soup.save().await
+    }
+
+    pub async fn load_state(&self, state: SoupState) -> Result<(), String> {
+        self.soup.load(state).await
+    }
+
+    pub fn snapshot_watch(&self) -> tokio::sync::watch::Receiver<stalinium_evolution::node::SoupSnapshot> {
+        self.soup.snapshot_watch()
     }
 
     pub fn node_id(&self) -> &[u8] {
