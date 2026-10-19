@@ -2,34 +2,44 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Stalinium C2</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Courier New',monospace;background:#0a0a0a;color:#c8c8c8;padding:24px;max-width:960px;margin:0 auto}
+body{font-family:'Courier New',monospace;background:#0a0a0a;color:#c8c8c8;padding:16px;max-width:960px;margin:0 auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 h1{color:#ff3333;font-size:20px;margin-bottom:4px}
-.subtitle{color:#555;font-size:12px;margin-bottom:24px}
-h2{color:#666;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:24px 0 8px;border-top:1px solid #1a1a1a;padding-top:16px}
+.subtitle{color:#555;font-size:12px;margin-bottom:16px}
+.status-bar{display:flex;gap:12px;flex-wrap:wrap;padding:8px 10px;background:#111;border:1px solid #1a1a1a;margin-bottom:16px;font-size:11px}
+.status-bar .tag{color:#555}.status-bar .val{color:#00ff41}
+.status-bar .warn{color:#ff3333}
+h2{color:#666;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:20px 0 8px;border-top:1px solid #1a1a1a;padding-top:12px}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:6px 10px;border-bottom:1px solid #1a1a1a}
-td{padding:6px 10px;font-size:13px;border-bottom:1px solid #111}
+th{text-align:left;color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:8px 10px;border-bottom:1px solid #1a1a1a}
+td{padding:8px 10px;font-size:13px;border-bottom:1px solid #111}
 .form-row{display:flex;gap:8px;margin-bottom:8px}
 .form-row>*{flex:1}
 label{display:block;color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
-input,select{width:100%;background:#111;border:1px solid #222;color:#00ff41;padding:7px 8px;font-family:inherit;font-size:13px}
+input,select{width:100%;background:#111;border:1px solid #222;color:#00ff41;padding:10px 8px;font-family:inherit;font-size:14px;border-radius:0;-webkit-appearance:none}
 input:focus,select:focus{outline:none;border-color:#333}
-button{background:#ff3333;color:#000;border:none;padding:8px 24px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:1px}
+button{background:#ff3333;color:#000;border:none;padding:12px 24px;cursor:pointer;font-family:inherit;font-weight:bold;font-size:13px;text-transform:uppercase;letter-spacing:1px;width:100%;touch-action:manipulation}
 button:hover{background:#ff5555}
-.result{background:#0f0f0f;border-left:2px solid #222;padding:6px 10px;margin-bottom:6px;font-size:12px}
+button:active{background:#cc2222}
+.result{background:#0f0f0f;border-left:2px solid #222;padding:8px 10px;margin-bottom:6px;font-size:12px;word-break:break-all}
 .result .meta{color:#444;font-size:10px;margin-bottom:2px}
-.result .output{color:#00ff41}
+.result .output{color:#00ff41;white-space:pre-wrap}
 .empty{color:#333;font-style:italic;font-size:12px}
 .count{color:#444;font-size:11px;margin-left:8px}
+@media(max-width:600px){
+  .form-row{flex-direction:column;gap:6px}
+  body{padding:12px}
+  td,th{padding:6px 8px;font-size:12px}
+}
 </style>
 </head>
 <body>
 <h1>STALINIUM C2</h1>
 <p class="subtitle">command &amp; control server</p>
+<div class="status-bar" id="status-bar"></div>
 
 <h2>Connected Bots <span class="count" id="bot-count"></span></h2>
 <div id="bots"><p class="empty">waiting for connections...</p></div>
@@ -38,11 +48,21 @@ button:hover{background:#ff5555}
 <div class="form-row">
   <div><label>Target</label><select id="f-target"></select></div>
   <div><label>Command</label><select id="f-cmd">
-    <option value="ddos">ddos</option>
-    <option value="exfiltrate">exfiltrate</option>
-    <option value="ransomware">ransomware</option>
-    <option value="phishing">phishing</option>
-    <option value="sql_injection">sql_injection</option>
+    <optgroup label="Attack">
+      <option value="ddos">ddos</option>
+      <option value="exfiltrate">exfiltrate</option>
+      <option value="ransomware">ransomware</option>
+      <option value="phishing">phishing</option>
+      <option value="sql_injection">sql_injection</option>
+    </optgroup>
+    <optgroup label="Recon">
+      <option value="recon_scan">recon_scan</option>
+      <option value="recon_full">recon_full</option>
+    </optgroup>
+    <optgroup label="Compute">
+      <option value="compute_profile">compute_profile</option>
+      <option value="compute_status">compute_status</option>
+    </optgroup>
   </select></div>
 </div>
 <div class="form-row">
@@ -55,6 +75,22 @@ button:hover{background:#ff5555}
 
 <script>
 const $=id=>document.getElementById(id);
+let pollInterval=2000;
+async function pollStatus(){
+  try{
+    const r=await fetch('/api/status');const s=await r.json();
+    let h=`<span><span class="tag">PLATFORM </span><span class="val">${s.platform}/${s.arch}</span></span>`;
+    h+=`<span><span class="tag">BOTS </span><span class="val">${s.bots_connected}</span></span>`;
+    if(s.battery){
+      const pct=s.battery.percentage;
+      const cls=pct<20?'warn':'val';
+      h+=`<span><span class="tag">BAT </span><span class="${cls}">${pct}%${s.battery.plugged?' +':''}${s.battery.temperature>0?' '+s.battery.temperature.toFixed(1)+'C':''}</span></span>`;
+      pollInterval=(!s.battery.plugged&&pct<20)?8000:2000;
+    }
+    if(s.local_ip)h+=`<span><span class="tag">IP </span><span class="val">${s.local_ip}</span></span>`;
+    $('status-bar').innerHTML=h;
+  }catch(e){}
+}
 async function poll(){
   try{
     const br=await fetch('/api/bots');const bots=await br.json();
@@ -80,7 +116,8 @@ async function send(){
   const args=$('f-args').value?$('f-args').value.split(',').map(s=>s.trim()):[];
   try{await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target,command,args})});$('f-args').value='';}catch(e){}
 }
-setInterval(poll,2000);poll();
+function startPolling(){poll();pollStatus();setTimeout(()=>{startPolling()},pollInterval);}
+startPolling();
 </script>
 </body>
 </html>

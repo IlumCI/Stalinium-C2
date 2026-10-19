@@ -1,0 +1,22 @@
+# Stalinium Server -- Termux (Android, no root) config
+# Copy to ~/.stalinium/config.toml or to CWD
+
+[settings]
+tcp_address = "0.0.0.0:8080"
+admin_address = "0.0.0.0:3000"
+encryption_key = "CHANGE_ME_32_BYTES_EXACTLY_HERE!"
+
+[backup_servers]
+primary = "0.0.0.0:8081"
+secondary = "0.0.0.0:8082"
+
+[p2p]
+enabled = true
+gossip_address = "0.0.0.0:9090"
+max_peers = 25
+bootstrap_peers = []
+
+[agentic]
+enabled = true
+listen_address = "0.0.0.0:8443"
+api_keys = ["sk-stalinium-termux-key-0001"]

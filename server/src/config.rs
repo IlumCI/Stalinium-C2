@@ -53,7 +53,7 @@ impl Default for AgenticConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_address: "0.0.0.0:443".to_string(),
+            listen_address: "0.0.0.0:8443".to_string(),
             api_keys: vec![],
         }
     }
@@ -61,15 +61,39 @@ impl Default for AgenticConfig {
 
 impl Config {
     pub fn load() -> Self {
-        let config_str = std::fs::read_to_string("config.toml")
-            .expect("Failed to read config.toml");
+        let config_path = if crate::termux::is_termux() {
+            let data = crate::termux::data_dir();
+            let termux_path = format!("{}/config.toml", data);
+            if std::path::Path::new(&termux_path).exists() {
+                termux_path
+            } else {
+                "config.toml".to_string()
+            }
+        } else {
+            "config.toml".to_string()
+        };
+
+        let config_str = std::fs::read_to_string(&config_path)
+            .unwrap_or_else(|_| panic!("Failed to read {}", config_path));
         let config: Config = toml::from_str(&config_str)
-            .expect("Failed to parse config.toml");
+            .unwrap_or_else(|_| panic!("Failed to parse {}", config_path));
         assert_eq!(
             config.settings.encryption_key.len(),
             32,
             "encryption_key must be exactly 32 bytes (AES-256)"
         );
+
+        if crate::termux::is_termux() {
+            crate::termux::warn_low_ports(&config.settings.tcp_address, "TCP");
+            crate::termux::warn_low_ports(&config.settings.admin_address, "Admin");
+            if config.agentic.enabled {
+                crate::termux::warn_low_ports(&config.agentic.listen_address, "Agentic API");
+            }
+            if config.p2p.enabled {
+                crate::termux::warn_low_ports(&config.p2p.gossip_address, "P2P gossip");
+            }
+        }
+
         config
     }
 }

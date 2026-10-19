@@ -6,6 +6,11 @@ pub fn add_persistence() {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "stalinium_server".to_string());
 
+    if crate::termux::is_termux() {
+        add_termux_persistence(&exe_path);
+        return;
+    }
+
     if cfg!(target_os = "windows") {
         let status = Command::new("schtasks")
             .args(&["/create", "/sc", "onlogon", "/tn", "StaliniumServer", "/tr", &exe_path, "/f"])
@@ -85,4 +90,46 @@ pub fn add_persistence() {
     } else {
         eprintln!("[*] Persistence: unsupported platform, skipping.");
     }
+}
+
+fn add_termux_persistence(exe_path: &str) {
+    let home = std::env::var("HOME")
+        .unwrap_or_else(|_| "/data/data/com.termux/files/home".to_string());
+    let boot_dir = format!("{}/.termux/boot", home);
+    let boot_script = format!("{}/stalinium-server", boot_dir);
+
+    let work_dir = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| home.clone());
+
+    let script_content = format!(
+        "#!/data/data/com.termux/files/usr/bin/bash\n\
+         termux-wake-lock\n\
+         cd \"{work_dir}\"\n\
+         nohup \"{exe_path}\" > \"$HOME/.stalinium/server.log\" 2>&1 &\n\
+         termux-notification \\\n  \
+           --id stalinium-boot \\\n  \
+           --title \"Stalinium Server\" \\\n  \
+           --content \"Server started on boot\" \\\n  \
+           --priority low\n",
+    );
+
+    let dir_ok = std::fs::create_dir_all(&boot_dir).is_ok();
+    let write_ok = dir_ok && std::fs::write(&boot_script, &script_content).is_ok();
+    let chmod_ok = write_ok
+        && Command::new("chmod")
+            .args(["+x", &boot_script])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+    if chmod_ok {
+        eprintln!("[*] Persistence added (Termux:Boot).");
+        eprintln!("    Script: {}", boot_script);
+    } else {
+        eprintln!("[!] Termux:Boot persistence failed.");
+        eprintln!("    Install Termux:Boot from F-Droid for auto-start.");
+    }
+
+    let _ = std::fs::create_dir_all(format!("{}/.stalinium", home));
 }
