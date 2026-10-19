@@ -188,14 +188,20 @@ fn main() {
                         }
                     };
 
-                    let _ = db.insert_command(command.id, &command.command, &command.args);
+                    let is_heartbeat = command.command == "__heartbeat__";
+
+                    if !is_heartbeat {
+                        let _ = db.insert_command(command.id, &command.command, &command.args);
+                    }
 
                     let result_str = match execute_attack(&command, &evo_snap_rx).await {
                         Ok(data) => data,
                         Err(e) => format!("Error: {}", e),
                     };
 
-                    let _ = db.update_command_result(command.id, &result_str);
+                    if !is_heartbeat {
+                        let _ = db.update_command_result(command.id, &result_str);
+                    }
 
                     let result = CommandResult {
                         id: command.id,
