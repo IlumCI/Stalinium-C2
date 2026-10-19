@@ -18,3 +18,7 @@ hkdf = "0.12"
 sha2 = "0.10"
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
+crusade-core = { git = "https://github.com/IlumCI/Crusade.git" }
+crusade-scan = { git = "https://github.com/IlumCI/Crusade.git" }
+crusade-probe = { git = "https://github.com/IlumCI/Crusade.git" }
+crusade-enrich = { git = "https://github.com/IlumCI/Crusade.git" }
