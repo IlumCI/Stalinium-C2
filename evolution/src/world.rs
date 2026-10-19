@@ -1563,7 +1563,7 @@ impl World {
     fn template(&self, a: u32) -> (u32, u32) {
         let (mut bits, mut len) = (0u32, 0u32);
         while len < MAX_TEMPLATE {
-            let op = self.at(a + len);
+            let op = self.at(a.wrapping_add(len));
             if op > NOP1 {
                 break;
             }
@@ -1574,7 +1574,7 @@ impl World {
     }
 
     fn matches(&self, q: u32, bits: u32, len: u32) -> bool {
-        (0..len).all(|i| self.at(q + i) as u32 == ((bits >> i) & 1) ^ 1)
+        (0..len).all(|i| self.at(q.wrapping_add(i)) as u32 == ((bits >> i) & 1) ^ 1)
     }
 
     /// Find the complement of a template. Returns the address just past it.
@@ -1588,7 +1588,7 @@ impl World {
         let kb = if back { self.search_back(rfinder, bits, len, back_from, kf.unwrap_or(limit)) } else { None };
         match (kf, kb) {
             (_, Some(k)) if kf.is_none_or(|f| k < f) => Some((back_from.wrapping_sub(k) & self.mask, k)),
-            (Some(k), _) => Some(((fwd_from.wrapping_add(k) + len) & self.mask, k)),
+            (Some(k), _) => Some(((fwd_from.wrapping_add(k).wrapping_add(len)) & self.mask, k)),
             _ => None,
         }
     }
@@ -1612,7 +1612,7 @@ impl World {
         if low >= 0 && back_from as usize <= self.soup.len() {
             return f.rfind(&self.soup[low as usize..back_from as usize]).map(|r| (top - (low + r as i64)) as u32);
         }
-        (0..limit).find(|&k| self.matches(back_from.wrapping_sub(len + k), bits, len))
+        (0..limit).find(|&k| self.matches(back_from.wrapping_sub(len.wrapping_add(k)), bits, len))
     }
 
     /// A remembered jump from the instruction at `p`: where it lands and its template's

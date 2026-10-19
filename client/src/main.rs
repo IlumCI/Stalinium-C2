@@ -102,7 +102,7 @@ fn main() {
                     tokio::time::sleep(std::time::Duration::from_millis(tick_ms)).await;
 
                     // Drain incoming creature migrations from gossip
-                    if let Some(ref engine) = gossip_for_evo {
+                    let peer_count = if let Some(ref engine) = gossip_for_evo {
                         let mut incoming: Vec<stalinium_evolution::node::Migrant> = Vec::new();
                         {
                             let mut cmds = engine.command_rx.write().await;
@@ -120,9 +120,12 @@ fn main() {
                         if !incoming.is_empty() {
                             evo.receive_migrants(incoming).await;
                         }
+                        engine.peer_count().await
+                    } else {
+                        0
+                    };
 
-                        evo.tick(engine.peer_count().await, 0, 0, 0, 0);
-                    }
+                    evo.tick(peer_count, 0, 0, 0, 0);
 
                     if let Some(emigrants) = evo.cycle().await {
                         if let Some(ref engine) = gossip_for_evo {
@@ -147,11 +150,17 @@ fn main() {
                     }
 
                     save_counter += 1;
-                    if save_counter % 20 == 0 {
-                        if let Ok(state) = evo.save_state().await {
-                            if let Ok(bytes) = bincode::serialize(&state) {
-                                let _ = db_for_evo.save_evolution_state(&bytes);
-                            }
+                    if save_counter == 1 || save_counter % 10 == 0 {
+                        match evo.save_state().await {
+                            Ok(state) => match bincode::serialize(&state) {
+                                Ok(bytes) => {
+                                    if let Err(e) = db_for_evo.save_evolution_state(&bytes) {
+                                        eprintln!("[!] Evo state db write failed: {}", e);
+                                    }
+                                }
+                                Err(e) => eprintln!("[!] Evo state serialize failed: {}", e),
+                            },
+                            Err(e) => eprintln!("[!] Evo state save failed: {}", e),
                         }
                     }
                 }

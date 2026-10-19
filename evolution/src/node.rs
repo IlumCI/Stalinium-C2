@@ -15,9 +15,18 @@ use crate::feed::Feed;
 use crate::isa;
 use crate::meter::{Census, Meter};
 use crate::world::{Ocean, Params, World};
+use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::time::SystemTime;
 use tokio::sync::{oneshot, watch};
+
+mod hex32 {
+    use serde::Serializer;
+    pub fn serialize<S: Serializer>(bytes: &[u8; 32], ser: S) -> Result<S::Ok, S::Error> {
+        let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        ser.serialize_str(&hex)
+    }
+}
 
 /// Network telemetry that becomes the soup's weather and ocean.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -53,7 +62,9 @@ pub struct BehaviorSignal {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EvolutionProof {
     pub epoch: u64,
+    #[serde(serialize_with = "hex32::serialize")]
     pub state_hash: [u8; 32],
+    #[serde(serialize_with = "hex32::serialize")]
     pub prev_proof_hash: [u8; 32],
     pub population: usize,
     pub gene_novelty: u32,
@@ -61,6 +72,7 @@ pub struct EvolutionProof {
     pub complexity: u32,
     pub ecology: f64,
     pub computing: u32,
+    #[serde(serialize_with = "hex32::serialize")]
     pub proof_hash: [u8; 32],
     pub node_id: Vec<u8>,
     pub timestamp_secs: u64,
@@ -126,6 +138,7 @@ pub struct SoupSnapshot {
     pub tasks: [u32; 10],
     pub ocean_acc: f64,
     pub ocean_bits: f64,
+    #[serde(serialize_with = "hex32::serialize")]
     pub state_hash: [u8; 32],
     pub behavior: BehaviorSignal,
     pub latest_proof: Option<EvolutionProof>,
@@ -146,7 +159,7 @@ pub struct SoupState {
     pub meter_bytes: Vec<u8>,
     pub feed_bytes: Vec<u8>,
     pub epoch: u64,
-    pub telemetry_history: Vec<Telemetry>,
+    pub telemetry_history: VecDeque<Telemetry>,
     pub proof_chain_tail: [u8; 32],
 }
 
@@ -305,9 +318,10 @@ fn sigmoid(x: f64) -> f64 {
 /// and observer surprise fuels stealth.
 pub fn extract_behavior(c: &Census, state_hash: &[u8; 32]) -> BehaviorSignal {
     let pop = c.pop.max(1);
+    let pop32 = (pop as u32).max(1);
 
     let base_jitter = 50u32
-        .saturating_add((c.computing as u32).saturating_mul(200) / pop as u32)
+        .saturating_add((c.computing).saturating_mul(200) / pop32)
         .saturating_add(c.genes.new.saturating_mul(10));
     let hash_xor = u32::from_le_bytes([
         state_hash[28], state_hash[29], state_hash[30], state_hash[31],
@@ -382,7 +396,7 @@ fn telemetry_to_weather_bytes(t: &Telemetry) -> [u8; 32] {
 }
 
 /// Build an ocean from recent telemetry history.
-fn build_telemetry_ocean(history: &[Telemetry]) -> Vec<u8> {
+fn build_telemetry_ocean<'a>(history: impl Iterator<Item = &'a Telemetry> + ExactSizeIterator) -> Vec<u8> {
     let mut ocean = Vec::with_capacity(history.len() * 32);
     for t in history {
         ocean.extend_from_slice(&telemetry_to_weather_bytes(t));
@@ -438,7 +452,7 @@ fn soup_loop(
 
     let mut feed = Feed::Chain(*blake3::hash(&seed.to_le_bytes()).as_bytes());
     let mut epoch: u64 = 0;
-    let mut telemetry_history: Vec<Telemetry> = Vec::new();
+    let mut telemetry_history: VecDeque<Telemetry> = VecDeque::new();
     let mut latest_telemetry = Telemetry::default();
     let mut prev_proof_hash = [0u8; 32];
     let mut latest_behavior = BehaviorSignal::default();
@@ -448,9 +462,9 @@ fn soup_loop(
             match rx.try_recv() {
                 Ok(Command::Telemetry(t)) => {
                     latest_telemetry = t.clone();
-                    telemetry_history.push(t);
-                    if telemetry_history.len() > TELEMETRY_OCEAN_SIZE {
-                        telemetry_history.remove(0);
+                    telemetry_history.push_back(t);
+                    while telemetry_history.len() > TELEMETRY_OCEAN_SIZE {
+                        telemetry_history.pop_front();
                     }
                 }
                 Ok(Command::Immigrate(migrants)) => {
@@ -503,7 +517,7 @@ fn soup_loop(
                     let result = (|| -> Result<(), String> {
                         let mut loaded_w: World = bincode::deserialize(&state.world_bytes)
                             .map_err(|e| format!("world: {e}"))?;
-                        let ocean_data = build_telemetry_ocean(&state.telemetry_history);
+                        let ocean_data = build_telemetry_ocean(state.telemetry_history.iter());
                         if ocean_data.is_empty() {
                             loaded_w.after_load(Ocean::default());
                         } else {
@@ -519,6 +533,9 @@ fn soup_loop(
                         epoch = state.epoch;
                         telemetry_history = state.telemetry_history;
                         prev_proof_hash = state.proof_chain_tail;
+                        let sh = w.state_hash();
+                        let (c, _) = m.census(&mut w);
+                        latest_behavior = extract_behavior(&c, &sh);
                         Ok(())
                     })();
                     let _ = reply.send(result);
@@ -552,7 +569,7 @@ fn soup_loop(
         w.set_weather(&weather_bytes);
 
         if epoch % 10 == 0 && !telemetry_history.is_empty() {
-            let ocean_bytes = build_telemetry_ocean(&telemetry_history);
+            let ocean_bytes = build_telemetry_ocean(telemetry_history.iter());
             w.replace_ocean(ocean_bytes);
         }
 

@@ -81,19 +81,20 @@ button:active{background:#cc2222}
 
 <script>
 const $=id=>document.getElementById(id);
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 let pollInterval=2000;
 async function pollStatus(){
   try{
     const r=await fetch('/api/status');const s=await r.json();
-    let h=`<span><span class="tag">PLATFORM </span><span class="val">${s.platform}/${s.arch}</span></span>`;
-    h+=`<span><span class="tag">BOTS </span><span class="val">${s.bots_connected}</span></span>`;
+    let h=`<span><span class="tag">PLATFORM </span><span class="val">${esc(s.platform)}/${esc(s.arch)}</span></span>`;
+    h+=`<span><span class="tag">BOTS </span><span class="val">${esc(s.bots_connected)}</span></span>`;
     if(s.battery){
       const pct=s.battery.percentage;
       const cls=pct<20?'warn':'val';
-      h+=`<span><span class="tag">BAT </span><span class="${cls}">${pct}%${s.battery.plugged?' +':''}${s.battery.temperature>0?' '+s.battery.temperature.toFixed(1)+'C':''}</span></span>`;
+      h+=`<span><span class="tag">BAT </span><span class="${cls}">${esc(pct)}%${s.battery.plugged?' +':''}${s.battery.temperature>0?' '+s.battery.temperature.toFixed(1)+'C':''}</span></span>`;
       pollInterval=(!s.battery.plugged&&pct<20)?8000:2000;
     }
-    if(s.local_ip)h+=`<span><span class="tag">IP </span><span class="val">${s.local_ip}</span></span>`;
+    if(s.local_ip)h+=`<span><span class="tag">IP </span><span class="val">${esc(s.local_ip)}</span></span>`;
     $('status-bar').innerHTML=h;
   }catch(e){}
 }
@@ -105,7 +106,7 @@ async function poll(){
     else{
       let h='<table><tr><th>Address</th><th>Uptime</th></tr>';
       let opts='';
-      for(const b of bots){const m=Math.floor(b.connected_secs/60),s=b.connected_secs%60;h+=`<tr><td>${b.addr}</td><td>${m}m ${s}s</td></tr>`;opts+=`<option value="${b.addr}">${b.addr}</option>`;}
+      for(const b of bots){const m=Math.floor(b.connected_secs/60),s=b.connected_secs%60;h+=`<tr><td>${esc(b.addr)}</td><td>${m}m ${s}s</td></tr>`;opts+=`<option value="${esc(b.addr)}">${esc(b.addr)}</option>`;}
       h+='</table>';$('bots').innerHTML=h;
       const cur=$('f-target').value;$('f-target').innerHTML=opts;
       if(cur&&bots.find(b=>b.addr===cur))$('f-target').value=cur;
@@ -113,7 +114,7 @@ async function poll(){
     const rr=await fetch('/api/results');const results=await rr.json();
     $('result-count').textContent=results.length?`(${results.length})`:'';
     if(!results.length){$('results').innerHTML='<p class="empty">no results</p>';}
-    else{let rh='';for(const r of[...results].reverse()){rh+=`<div class="result"><div class="meta">${r.bot_addr} / ${r.command} / ${r.seconds_ago}s ago</div><div class="output">${r.result}</div></div>`;}$('results').innerHTML=rh;}
+    else{let rh='';for(const r of[...results].reverse()){rh+=`<div class="result"><div class="meta">${esc(r.bot_addr)} / ${esc(r.command)} / ${esc(r.seconds_ago)}s ago</div><div class="output">${esc(r.result)}</div></div>`;}$('results').innerHTML=rh;}
     renderEvo(results);
   }catch(e){}
 }
@@ -131,10 +132,10 @@ function renderEvo(results){
     try{
       const s=JSON.parse(r.result);
       const b=s.behavior||{};
-      h+=`<tr><td style="color:#444;width:100px">${r.bot_addr}</td>`;
-      h+=`<td><span style="color:#ff3333">e${s.epoch}</span> `;
-      h+=`pop=<span style="color:#00ff41">${s.population}</span> `;
-      h+=`div=${s.diversity} genes=${s.alive_genes} comp=${s.computing}</td>`;
+      h+=`<tr><td style="color:#444;width:100px">${esc(r.bot_addr)}</td>`;
+      h+=`<td><span style="color:#ff3333">e${esc(s.epoch)}</span> `;
+      h+=`pop=<span style="color:#00ff41">${esc(s.population)}</span> `;
+      h+=`div=${esc(s.diversity)} genes=${esc(s.alive_genes)} comp=${esc(s.computing)}</td>`;
       h+=`<td>agg=<span style="color:${b.aggression>0.5?'#ff3333':'#00ff41'}">${(b.aggression||0).toFixed(2)}</span> `;
       h+=`stl=<span style="color:${b.stealth>0.5?'#00ff41':'#555'}">${(b.stealth||0).toFixed(2)}</span> `;
       h+=`fan=${(b.fanout_modifier||0).toFixed(1)} jit=${b.timing_jitter_ms||0}ms</td></tr>`;
@@ -142,7 +143,7 @@ function renderEvo(results){
       h+=`MODES: chg=${s.modes_change} nov=${s.modes_novelty} cplx=${s.modes_complexity} `;
       h+=`eco=${(s.modes_ecology||0).toFixed(1)} obs=${(s.modes_observer_bits||0).toFixed(1)} `;
       h+=`ocean_acc=${(s.ocean_acc||0).toFixed(3)}</td></tr>`;
-    }catch(e){h+=`<tr><td>${r.bot_addr}</td><td style="color:#555">${r.result}</td></tr>`;}
+    }catch(e){h+=`<tr><td>${esc(r.bot_addr)}</td><td style="color:#555">${esc(r.result)}</td></tr>`;}
   }
   h+='</table>';
   $('evo-panel').innerHTML=h;

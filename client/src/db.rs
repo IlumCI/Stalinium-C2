@@ -1,6 +1,5 @@
 use rusqlite::{Connection, params};
 use std::sync::Mutex;
-use std::path::Path;
 
 use crate::error::C2Error;
 
@@ -135,6 +134,17 @@ impl ClientDb {
                 convergence_delta REAL,
                 completed_at TEXT NOT NULL DEFAULT (datetime('now')),
                 PRIMARY KEY (job_id, round)
+            );
+
+            CREATE TABLE IF NOT EXISTS evolution_state (
+                id          INTEGER PRIMARY KEY,
+                data        BLOB NOT NULL,
+                saved_at    TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS node_identity (
+                id          INTEGER PRIMARY KEY,
+                node_id     BLOB NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(status);
@@ -349,10 +359,6 @@ impl ClientDb {
     pub fn save_evolution_state(&self, data: &[u8]) -> Result<(), C2Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS evolution_state (id INTEGER PRIMARY KEY, data BLOB NOT NULL, saved_at TEXT NOT NULL DEFAULT (datetime('now')))",
-            [],
-        ).map_err(|e| C2Error::CommandError(format!("evo table: {}", e)))?;
-        conn.execute(
             "INSERT OR REPLACE INTO evolution_state (id, data) VALUES (1, ?1)",
             params![data],
         ).map_err(|e| C2Error::CommandError(format!("evo save: {}", e)))?;
@@ -361,10 +367,6 @@ impl ClientDb {
 
     pub fn load_evolution_state(&self) -> Result<Option<Vec<u8>>, C2Error> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS evolution_state (id INTEGER PRIMARY KEY, data BLOB NOT NULL, saved_at TEXT NOT NULL DEFAULT (datetime('now')))",
-            [],
-        ).map_err(|e| C2Error::CommandError(format!("evo table: {}", e)))?;
         let result = conn.query_row(
             "SELECT data FROM evolution_state WHERE id = 1",
             [],
@@ -374,6 +376,29 @@ impl ClientDb {
             Ok(data) => Ok(Some(data)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(C2Error::CommandError(format!("evo load: {}", e))),
+        }
+    }
+
+    pub fn save_node_id(&self, node_id: &[u8]) -> Result<(), C2Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO node_identity (id, node_id) VALUES (1, ?1)",
+            params![node_id],
+        ).map_err(|e| C2Error::CommandError(format!("node_id save: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn load_node_id(&self) -> Result<Option<Vec<u8>>, C2Error> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT node_id FROM node_identity WHERE id = 1",
+            [],
+            |row| row.get::<_, Vec<u8>>(0),
+        );
+        match result {
+            Ok(data) => Ok(Some(data)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(C2Error::CommandError(format!("node_id load: {}", e))),
         }
     }
 }
