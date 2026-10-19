@@ -22,3 +22,4 @@ crusade-core = { git = "https://github.com/IlumCI/Crusade.git" }
 crusade-scan = { git = "https://github.com/IlumCI/Crusade.git" }
 crusade-probe = { git = "https://github.com/IlumCI/Crusade.git" }
 crusade-enrich = { git = "https://github.com/IlumCI/Crusade.git" }
+rusqlite = { version = "0.32", features = ["bundled"] }

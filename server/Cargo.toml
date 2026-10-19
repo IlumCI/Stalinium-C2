@@ -18,3 +18,4 @@ hkdf = "0.12"
 sha2 = "0.10"
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.32", features = ["bundled"] }

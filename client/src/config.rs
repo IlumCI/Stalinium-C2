@@ -7,6 +7,10 @@ struct ConfigFile {
     p2p: P2pConfig,
     #[serde(default)]
     agentic: AgenticConfig,
+    #[serde(default)]
+    compute: ComputeConfig,
+    #[serde(default)]
+    database: DatabaseConfig,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -51,10 +55,42 @@ impl Default for AgenticConfig {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ComputeConfig {
+    pub enabled: bool,
+    pub min_reputation: i32,
+    pub min_participants: usize,
+}
+
+impl Default for ComputeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_reputation: 0,
+            min_participants: 2,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DatabaseConfig {
+    pub path: String,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            path: "stalinium.db".to_string(),
+        }
+    }
+}
+
 pub struct FullConfig {
     pub settings: Config,
     pub p2p: P2pConfig,
     pub agentic: AgenticConfig,
+    pub compute: ComputeConfig,
+    pub database: DatabaseConfig,
 }
 
 impl FullConfig {
@@ -67,6 +103,8 @@ impl FullConfig {
             settings: config_file.settings,
             p2p: config_file.p2p,
             agentic: config_file.agentic,
+            compute: config_file.compute,
+            database: config_file.database,
         }
     }
 }

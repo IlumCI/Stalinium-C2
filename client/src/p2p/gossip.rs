@@ -22,6 +22,11 @@ pub enum GossipMessage {
     PeerLeave { addr: SocketAddr },
     CommandRelay { id: String, origin: SocketAddr, ttl: u8, payload: Vec<u8> },
     ResultRelay { id: String, origin: SocketAddr, ttl: u8, payload: Vec<u8> },
+    CapabilityAnnounce { node_id: String, origin: SocketAddr, capability_json: Vec<u8> },
+    ShardDistribute { job_id: String, origin: SocketAddr, ttl: u8, payload: Vec<u8> },
+    ActivationForward { job_id: String, request_id: String, stage: u32, data: Vec<u8> },
+    GradientSubmit { job_id: String, round: u32, node_id: String, payload: Vec<u8> },
+    AggregatedUpdate { job_id: String, round: u32, payload: Vec<u8> },
 }
 
 pub struct GossipEngine {
@@ -156,6 +161,47 @@ impl GossipEngine {
                         };
                         self.broadcast(&relay, FANOUT).await;
                     }
+                }
+            }
+            GossipMessage::CapabilityAnnounce { node_id, origin, capability_json } => {
+                self.peer_mgr.add_peer(origin, vec!["compute".to_string()]).await;
+                self.command_rx.write().await.push((
+                    format!("cap:{}", node_id),
+                    capability_json,
+                ));
+            }
+            GossipMessage::ShardDistribute { job_id, origin, ttl, payload } => {
+                let id = format!("shard:{}", job_id);
+                if self.mark_seen(&id).await {
+                    self.command_rx.write().await.push((id.clone(), payload.clone()));
+                    if ttl > 0 {
+                        let relay = GossipMessage::ShardDistribute {
+                            job_id, origin, ttl: ttl - 1, payload,
+                        };
+                        self.broadcast(&relay, FANOUT).await;
+                    }
+                }
+            }
+            GossipMessage::ActivationForward { job_id, request_id, stage: _, data } => {
+                self.command_rx.write().await.push((
+                    format!("act:{}:{}", job_id, request_id),
+                    data,
+                ));
+            }
+            GossipMessage::GradientSubmit { job_id, round, node_id, payload } => {
+                self.command_rx.write().await.push((
+                    format!("grad:{}:{}:{}", job_id, round, node_id),
+                    payload,
+                ));
+            }
+            GossipMessage::AggregatedUpdate { job_id, round, payload } => {
+                let id = format!("agg:{}:{}", job_id, round);
+                if self.mark_seen(&id).await {
+                    self.command_rx.write().await.push((id, payload.clone()));
+                    let relay = GossipMessage::AggregatedUpdate {
+                        job_id, round, payload,
+                    };
+                    self.broadcast(&relay, FANOUT).await;
                 }
             }
         }

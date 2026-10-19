@@ -1,6 +1,6 @@
 use ml_kem::MlKem768;
 use ml_kem::kem::Decapsulate;
-use ml_kem::{Encoded, EncodedSizeUser, KemCore};
+use ml_kem::{EncodedSizeUser, KemCore};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -13,9 +13,10 @@ pub struct HandshakeResult {
     pub session_key: [u8; 32],
 }
 
-// ML-KEM-768 sizes
 const MLKEM_EK_LEN: usize = 1184;
 const MLKEM_CT_LEN: usize = 1088;
+
+type MlKemEk = <MlKem768 as KemCore>::EncapsulationKey;
 
 pub async fn server_handshake(
     socket: &mut TcpStream,
@@ -24,7 +25,7 @@ pub async fn server_handshake(
     let x25519_public = PublicKey::from(&x25519_secret);
 
     let (mlkem_dk, mlkem_ek) = MlKem768::generate(&mut OsRng);
-    let ek_bytes: Encoded<ml_kem::EncapsulationKey<MlKem768>> = mlkem_ek.as_bytes();
+    let ek_bytes = mlkem_ek.as_bytes();
 
     let mut server_hello = Vec::with_capacity(4 + 32 + MLKEM_EK_LEN);
     let payload_len = (32 + MLKEM_EK_LEN) as u32;
@@ -50,9 +51,7 @@ pub async fn server_handshake(
     let x25519_shared = x25519_secret.diffie_hellman(&client_x25519_public);
 
     let ct_bytes = &client_hello[32..];
-    let ct = ml_kem::Ciphertext::<MlKem768>::from_bytes(
-        ct_bytes.try_into().map_err(|_| "Invalid ML-KEM ciphertext length")?,
-    );
+    let ct = ml_kem::array::Array::clone_from_slice(ct_bytes);
     let mlkem_shared = mlkem_dk
         .decapsulate(&ct)
         .map_err(|_| "ML-KEM decapsulation failed")?;
