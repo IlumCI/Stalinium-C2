@@ -7,6 +7,7 @@ pub enum C2Error {
     CommandError(String),
     CryptoError(String),
     P2pError(String),
+    ReconError(String),
     UnknownError(String),
 }
 
@@ -17,6 +18,7 @@ impl fmt::Display for C2Error {
             C2Error::CommandError(msg) => write!(f, "Command error: {}", msg),
             C2Error::CryptoError(msg) => write!(f, "Crypto error: {}", msg),
             C2Error::P2pError(msg) => write!(f, "P2P error: {}", msg),
+            C2Error::ReconError(msg) => write!(f, "Recon error: {}", msg),
             C2Error::UnknownError(msg) => write!(f, "Unknown error: {}", msg),
         }
     }
